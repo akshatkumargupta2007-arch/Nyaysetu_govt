@@ -1,0 +1,119 @@
+# GX1: BOTH stacks together, with the isolation the Bible requires (GOVERNMENT_BIBLE section 11).
+#
+#   citizen app:  http://localhost:5175  (web)   http://localhost:8082  (api)
+#   gov portal:   http://localhost:5174  (web)   http://localhost:8081  (api)
+#
+# (The citizen app is on 8082/5175 here so it never clashes with the untouched original stack on 8080/5173.)
+#
+# Who can talk to whom:
+#   citizen-db  <-  citizen-api only                                  (network citizen_db_net)
+#   gov-db      <-  gov-api only                                      (network gov_db_net)
+#   citizen-api <-> gov-api  on sync_net, an INTERNAL network         (no route to the outside, no host ports)
+#       citizen -> gov : 8091  signed batches of tickets (sealed phones)
+#       gov -> citizen : 8090  the single "please verify" door
+#   The two databases share no network. Neither stack holds the other's database credentials or its JWT secret.
+#
+# Run:   npm run up:all   then   npm run init:all   (first time only)   then   node scripts/e2e.mjs
+name: nyaysetu-full
+
+networks:
+  citizen_db_net: {}
+  gov_db_net: {}
+  sync_net:
+    internal: true # no outside access; only the two APIs are on it
+  public_net: {}
+
+volumes:
+  citizen_dbdata: {}
+  gov_dbdata: {}
+
+services:
+  # ── citizen stack ──────────────────────────────────────────────
+  citizen-db:
+    build: ../NyaySetu_Full_v2/infra/db
+    environment:
+      POSTGRES_PASSWORD: dev # local development only
+      POSTGRES_DB: nyaysetu
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - citizen_dbdata:/var/lib/postgresql/data
+    networks: [citizen_db_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  citizen-api:
+    build:
+      context: ../NyaySetu_Full_v2
+      dockerfile: apps/api/Dockerfile.dev
+    env_file: ../NyaySetu_Full_v2/.env # keys for the bridge + Gemini etc. (never committed)
+    environment:
+      DATABASE_URL: postgres://postgres:dev@citizen-db:5432/nyaysetu
+      PORT: "8080"
+      PUBLIC_WEB_ORIGIN: http://localhost:5175
+      GOV_SYNC_URL: http://gov-api:8091 # on sync_net
+      GOV_BRIDGE_PORT: "8090" # NOT published
+    depends_on:
+      citizen-db: { condition: service_healthy }
+    volumes:
+      - ../NyaySetu_Full_v2/data:/app/data:ro # taxonomy + the Bhilai data the seed reads
+    ports:
+      - "8082:8080"
+    networks: [public_net, citizen_db_net, sync_net]
+
+  citizen-web:
+    build:
+      context: ../NyaySetu_Full_v2
+      dockerfile: apps/web/Dockerfile.dev
+    environment:
+      VITE_API_URL: http://localhost:8082 # the browser calls the API through the host
+    depends_on: [citizen-api]
+    ports:
+      - "5175:5173"
+    networks: [public_net]
+
+  # ── gov stack ──────────────────────────────────────────────────
+  gov-db:
+    build: ./infra/db
+    environment:
+      POSTGRES_PASSWORD: ${GOV_DB_PASSWORD:-dev}
+      POSTGRES_DB: nyaysetu_gov
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - gov_dbdata:/var/lib/postgresql/data
+    networks: [gov_db_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  gov-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.dev
+    env_file: .env # gov keys (never committed)
+    environment:
+      DATABASE_URL: postgres://postgres:${GOV_DB_PASSWORD:-dev}@gov-db:5432/nyaysetu_gov
+      PORT: "8081"
+      SYNC_PORT: "8091" # NOT published
+      GOV_WEB_ORIGIN: http://localhost:5174
+      CITIZEN_INTERNAL_URL: http://citizen-api:8090 # on sync_net
+    depends_on:
+      gov-db: { condition: service_healthy }
+    ports:
+      - "8081:8081"
+    networks: [public_net, gov_db_net, sync_net]
+
+  gov-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.dev
+    environment:
+      VITE_API_URL: http://localhost:8081
+    depends_on: [gov-api]
+    ports:
+      - "5174:5174"
+    networks: [public_net]
