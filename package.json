@@ -15,9 +15,10 @@
     "dev:api": "npm run dev -w apps/api",
     "dev:web": "npm run dev -w apps/web",
     "test": "npm test -w apps/api",
-    "up:all": "docker compose -f docker-compose.full.yml up -d --build",
-    "down:all": "docker compose -f docker-compose.full.yml down",
+    "up:all": "node scripts/compose.mjs up -d --build",
+    "down:all": "node scripts/compose.mjs down",
     "init:all": "node scripts/init-all.mjs",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node scripts/e2e.mjs",
+    "gov:migrate:prod": "npm run migrate:prod -w apps/api"
   }
 }
