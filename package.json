@@ -1,0 +1,23 @@
+{
+  "name": "nyaysetu-gov",
+  "private": true,
+  "version": "0.1.0",
+  "description": "NyaySetu Gov: separate officials-only portal (prototype, not an official government website).",
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "gov:keys": "node scripts/gen-keys.mjs",
+    "gov:migrate": "npm run migrate -w apps/api",
+    "gov:seed": "npm run seed -w apps/api",
+    "gov:sync:backfill": "echo 'backfill is triggered from the citizen stack (gov-sync job); see HANDOFF.md'",
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "test": "npm test -w apps/api",
+    "up:all": "docker compose -f docker-compose.full.yml up -d --build",
+    "down:all": "docker compose -f docker-compose.full.yml down",
+    "init:all": "node scripts/init-all.mjs",
+    "e2e": "node scripts/e2e.mjs"
+  }
+}
