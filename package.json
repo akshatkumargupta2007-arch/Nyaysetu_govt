@@ -19,6 +19,7 @@
     "down:all": "node scripts/compose.mjs down",
     "init:all": "node scripts/init-all.mjs",
     "e2e": "node scripts/e2e.mjs",
-    "gov:migrate:prod": "npm run migrate:prod -w apps/api"
+    "gov:migrate:prod": "npm run migrate:prod -w apps/api",
+    "gov:railway-vars": "node scripts/railway-vars.mjs"
   }
 }
