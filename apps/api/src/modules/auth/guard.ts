@@ -15,6 +15,8 @@ export type AuthUser = {
   scopeDistrict: string | null;
   scopeCity: string | null;
   scopeDepartment: string | null;
+  /** Set only when a National official previews the portal as a narrower role (demo). The real role is kept here. */
+  viewingAs?: { realRole: Role };
 };
 
 declare module "fastify" {
@@ -53,7 +55,20 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
   }
   const user = await loadUser(sub);
   if (!user) return unauthorized(reply);
-  req.user = user;
+  req.user = applyViewAs(user, req.headers["x-view-as"]);
+}
+
+/** Demo scopes for "View as". They only ever NARROW a National official's view; no one else can use the header. */
+const VIEW_AS: Record<string, Pick<AuthUser, "role" | "scopeState" | "scopeDistrict" | "scopeCity" | "scopeDepartment">> = {
+  STATE: { role: "STATE", scopeState: "CG", scopeDistrict: null, scopeCity: null, scopeDepartment: null },
+  DISTRICT: { role: "DISTRICT", scopeState: "CG", scopeDistrict: "CG.DURG", scopeCity: null, scopeDepartment: null },
+  CITY: { role: "CITY", scopeState: "CG", scopeDistrict: "CG.DURG", scopeCity: "cg.bhilai", scopeDepartment: null },
+  DEPARTMENT: { role: "DEPARTMENT", scopeState: "CG", scopeDistrict: "CG.DURG", scopeCity: "cg.bhilai", scopeDepartment: "cg.bhilai.bmc" },
+};
+export function applyViewAs(user: AuthUser, header: string | string[] | undefined): AuthUser {
+  const want = (Array.isArray(header) ? header[0] : header)?.toUpperCase();
+  if (user.role !== "NATIONAL" || !want || !VIEW_AS[want]) return user;
+  return { ...user, ...VIEW_AS[want]!, viewingAs: { realRole: "NATIONAL" } };
 }
 
 /** Double-submit CSRF: the x-csrf-token header must equal the gov_csrf cookie. */

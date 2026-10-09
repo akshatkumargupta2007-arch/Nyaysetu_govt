@@ -151,5 +151,5 @@ export function registerAuthRoutes(app: App) {
     return reply.send({ ok: true });
   });
 
-  typed.get("/api/me", { preHandler: [requireAuth] }, async (req) => ({ user: req.user }));
+  typed.get("/api/me", { preHandler: [requireAuth] }, async (req) => ({ user: req.user, realRole: req.user!.viewingAs?.realRole ?? req.user!.role }));
 }
