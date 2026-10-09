@@ -11,10 +11,11 @@ export default function Header() {
     <header className="hdr">
       <span className="hdr__brand">{t('app.name')}</span>
       <span className="hdr__tag">Prototype</span>
-      {user?.role === 'NATIONAL' && (
+      {user && (
         <nav className="hdr__nav" aria-label="Main">
-          <NavLink to="/" end>{t('nav.dashboard')}</NavLink>
-          <NavLink to="/audit">{t('nav.audit')}</NavLink>
+          <NavLink to="/" end>{t('nav.pulse')}</NavLink>
+          <NavLink to="/complaints">{t('nav.dashboard')}</NavLink>
+          {user.role === 'NATIONAL' && <NavLink to="/audit">{t('nav.audit')}</NavLink>}
         </nav>
       )}
       <span className="hdr__spacer" />

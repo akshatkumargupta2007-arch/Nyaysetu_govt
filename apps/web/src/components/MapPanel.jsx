@@ -6,6 +6,7 @@
 //   15+        individual complaints, clustered
 // It uses the same filters and role scope as the table.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { esc } from '../lib/escape.js';
 import { CircleMarker, GeoJSON, MapContainer, Pane, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet.heat';
@@ -54,7 +55,7 @@ function PointsLayer({ points, onOpen }) {
     const group = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 45 });
     for (const p of points) {
       const m = L.circleMarker([p.lat, p.lng], { radius: 8, weight: 2, color: '#fff', fillColor: L1_COLORS[p.l1] || '#6b7686', fillOpacity: 0.95 });
-      m.bindTooltip(`${p.code}`, { direction: 'top' });
+      m.bindTooltip(esc(p.code), { direction: 'top' });
       m.on('click', () => onOpen(p.id));
       group.addLayer(m);
     }
@@ -147,7 +148,7 @@ export default function MapPanel({ filters, onSelectState, onSelectCity, onSelec
                 }}
                 onEachFeature={(feat, layer) => {
                   const s = stateCount[feat.properties.code];
-                  layer.bindTooltip(`${s ? pick(s.name) : feat.properties.name}: ${num(s?.count || 0)}`, { sticky: true });
+                  layer.bindTooltip(esc(`${s ? pick(s.name) : feat.properties.name}: ${num(s?.count || 0)}`), { sticky: true });
                   layer.on('click', () => s && onSelectState(feat.properties.code));
                 }}
               />
@@ -178,7 +179,7 @@ export default function MapPanel({ filters, onSelectState, onSelectCity, onSelec
               })}
               onEachFeature={(feat, layer) => {
                 const p = feat.properties;
-                layer.bindTooltip(`${pick(p.name)}: ${num(p.count)}${p.approximate ? ` · ${t('map.approxArea')}` : ''}`, { sticky: true });
+                layer.bindTooltip(esc(`${pick(p.name)}: ${num(p.count)}${p.approximate ? ` · ${t('map.approxArea')}` : ''}`), { sticky: true });
                 layer.on('click', () => onSelectArea(p.id));
               }}
             />

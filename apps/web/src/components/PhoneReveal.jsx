@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import { useI18n } from '../i18n/index.jsx';
 
+const MIN_REASON = 3;
+
 /** Shows a masked number; "Show number" asks for confirmation (the view is logged), then reveals it for 30 s. */
 export default function PhoneReveal({ ticketId, masked, reporterIndex = 0, compact = false }) {
   const { t } = useI18n();
@@ -11,15 +13,17 @@ export default function PhoneReveal({ ticketId, masked, reporterIndex = 0, compa
   const [number, setNumber] = useState('');
   const [error, setError] = useState('');
   const timer = useRef(null);
+  const reasonOk = reason.trim().length >= MIN_REASON; // the server insists too; this just saves a round trip
 
   useEffect(() => () => clearTimeout(timer.current), []);
   useEffect(() => { setNumber(''); setError(''); }, [ticketId, reporterIndex]); // never carry a number over to another complaint
 
   async function reveal() {
+    if (!reasonOk) return;
     setBusy(true);
     setError('');
     try {
-      const r = await api(`/api/complaints/${ticketId}/reveal-phone`, { method: 'POST', body: { reporterIndex, reason: reason.trim() || undefined } });
+      const r = await api(`/api/complaints/${ticketId}/reveal-phone`, { method: 'POST', body: { reporterIndex, reason: reason.trim() } });
       setNumber(r.phone);
       setAsking(false);
       setReason('');
@@ -57,11 +61,11 @@ export default function PhoneReveal({ ticketId, masked, reporterIndex = 0, compa
             <p style={{ margin: 0 }}>{t('phone.logWarn')}</p>
             <label className="field">
               <span>{t('phone.reason')}</span>
-              <input style={{ maxWidth: 'none' }} value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} autoFocus />
+              <input style={{ maxWidth: 'none' }} value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && reasonOk && !busy && reveal()} required autoFocus />
             </label>
             <div className="modal__actions">
               <button type="button" className="btn" onClick={() => setAsking(false)}>{t('app.cancel')}</button>
-              <button type="button" className="btn btn--primary" disabled={busy} onClick={reveal}>{t('app.confirm')}</button>
+              <button type="button" className="btn btn--primary" disabled={busy || !reasonOk} onClick={reveal}>{t('app.confirm')}</button>
             </div>
           </div>
         </>

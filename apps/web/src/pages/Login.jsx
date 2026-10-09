@@ -22,8 +22,7 @@ export default function Login() {
       await signIn(email.trim(), password);
       nav('/', { replace: true });
     } catch (err) {
-      if (err.code === 'LOCKED') setError(t('login.locked', { minutes: Math.max(1, Math.ceil((err.body.retryAfterSeconds || 900) / 60)) }));
-      else if (err.status === 401) setError(t('login.wrong'));
+      if (err.status === 401) setError(t('login.wrong')); // the same answer for a wrong password, an unknown email and a locked device
       else setError(t('app.error'));
     } finally {
       setBusy(false);

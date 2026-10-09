@@ -40,7 +40,7 @@ export default function Audit() {
       <Header />
       <main className="page__body" style={{ overflow: 'auto' }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Link to="/" className="btn" style={{ display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>← {t('nav.dashboard')}</Link>
+          <Link to="/complaints" className="btn" style={{ display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>← {t('nav.dashboard')}</Link>
           <h1 style={{ margin: 0, fontSize: 20, color: 'var(--navy)' }}>{t('audit.title')}</h1>
           <span style={{ flex: 1 }} />
           <button type="button" className="btn" onClick={check}>{t('audit.verify')}</button>
