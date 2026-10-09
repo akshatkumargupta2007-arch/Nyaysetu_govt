@@ -6,6 +6,7 @@ import { upsertUser } from "../../db/seed.js";
 import { privateKeyFromB64 } from "../../lib/keys.js";
 import { signAccessToken, JWT_AUDIENCE, JWT_ISSUER } from "../../lib/tokens.js";
 import { verifyAuditChain } from "../../lib/audit.js";
+import { LOGIN_FAILED_MESSAGE } from "./routes.js";
 
 const PW = "correct horse battery staple";
 const ORIGIN = "http://localhost:5174";
@@ -21,13 +22,14 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await pool.query("DELETE FROM gov_sessions");
+  await pool.query("DELETE FROM gov_login_failures");
   await pool.query("UPDATE gov_users SET failed_attempts = 0, locked_until = NULL");
   await upsertUser(pool, { id: "t.admin", name: "Test Admin", email: "t.admin@test.local", role: "NATIONAL", password: PW, active: true });
   await upsertUser(pool, { id: "t.off", name: "Switched Off", email: "t.off@test.local", role: "STATE", scopeState: "CG", password: PW, active: false });
 });
 
-const login = (email: string, password: string) =>
-  app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: ORIGIN }, payload: { email, password } });
+const login = (email: string, password: string, ip = "198.51.100.10") =>
+  app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: ORIGIN }, payload: { email, password }, remoteAddress: ip });
 const cookieHeader = (res: { cookies: { name: string; value: string }[] }) => res.cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 const me = (token: string) => app.inject({ method: "GET", url: "/api/me", headers: { authorization: `Bearer ${token}` } });
 
@@ -65,12 +67,53 @@ describe("GA4 login", () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it("locks the account after 5 wrong passwords, even for the right one (Bible test 6)", async () => {
+  it("locks a device after 5 wrong passwords (Bible test 6) but answers with the SAME 401, never a 423", async () => {
     for (let i = 0; i < 5; i++) expect((await login("t.admin@test.local", "wrong")).statusCode).toBe(401);
-    const locked = await login("t.admin@test.local", PW);
-    expect(locked.statusCode).toBe(423);
-    expect(locked.json().code).toBe("LOCKED");
-    expect(Number(locked.headers["retry-after"])).toBeGreaterThan(800);
+    const locked = await login("t.admin@test.local", PW); // the right password, still refused
+    expect(locked.statusCode).toBe(401);
+    expect(locked.json()).toEqual({ error: LOGIN_FAILED_MESSAGE, code: "INVALID_CREDENTIALS" });
+  });
+
+  it("a stranger cannot lock the real person out: the lockout belongs to the stranger's address only", async () => {
+    for (let i = 0; i < 6; i++) await login("t.admin@test.local", "guess" + i, "203.0.113.50"); // the attacker
+    expect((await login("t.admin@test.local", PW, "203.0.113.50")).statusCode).toBe(401); // attacker locked
+    const real = await login("t.admin@test.local", PW, "198.51.100.77"); // the real official, elsewhere
+    expect(real.statusCode).toBe(200);
+  });
+
+  it("an unknown email behaves exactly like a real one under repeated failures (no way to tell them apart)", async () => {
+    const seen = async (email: string) => {
+      const out: string[] = [];
+      for (let i = 0; i < 8; i++) {
+        const r = await login(email, "wrong" + i, "198.51.100.20");
+        out.push(`${r.statusCode}:${JSON.stringify(r.json())}`);
+      }
+      return out;
+    };
+    expect(await seen("nobody@test.local")).toEqual(await seen("t.admin@test.local"));
+  });
+
+  it("a successful login clears that device's failure count", async () => {
+    for (let i = 0; i < 4; i++) await login("t.admin@test.local", "wrong");
+    expect((await login("t.admin@test.local", PW)).statusCode).toBe(200);
+    for (let i = 0; i < 4; i++) await login("t.admin@test.local", "wrong");
+    expect((await login("t.admin@test.local", PW)).statusCode).toBe(200); // 4 + 4 failures, but never 5 in a row
+  });
+
+  it("ignores a forged X-Forwarded-For: rotating it does not escape the per-address rate limit or lockout", async () => {
+    let last = 0;
+    for (let i = 0; i < 12; i++) {
+      const r = await app.inject({
+        method: "POST", url: "/api/auth/login", remoteAddress: "198.51.100.30",
+        headers: { origin: ORIGIN, "x-test-rate-limit": "1", "x-forwarded-for": `203.0.113.${i + 1}` },
+        payload: { email: "nobody@test.local", password: "x" },
+      });
+      last = r.statusCode;
+    }
+    expect(last).toBe(429);
+    for (let i = 0; i < 6; i++) await app.inject({ method: "POST", url: "/api/auth/login", remoteAddress: "198.51.100.31", headers: { origin: ORIGIN, "x-forwarded-for": `192.0.2.${i + 1}` }, payload: { email: "t.admin@test.local", password: "wrong" } });
+    const locked = await app.inject({ method: "POST", url: "/api/auth/login", remoteAddress: "198.51.100.31", headers: { origin: ORIGIN, "x-forwarded-for": "192.0.2.99" }, payload: { email: "t.admin@test.local", password: PW } });
+    expect(locked.statusCode).toBe(401); // still locked, although every try claimed a different address
   });
 
   it("rate-limits the login route per address (10 a minute)", async () => {

@@ -12,6 +12,7 @@ import { CSRF_COOKIE, loadUser, requireAuth, requireCsrf } from "./guard.js";
 const REFRESH_COOKIE = "gov_refresh";
 const MAX_FAILS = 5;
 const LOCK_MINUTES = 15;
+export const LOGIN_FAILED_MESSAGE = "Wrong email or password. After 5 wrong tries from the same device you must wait 15 minutes.";
 
 // A real argon2 hash to compare against when the email is unknown, so timing does not reveal who exists.
 let dummyHash: Promise<string> | null = null;
@@ -60,39 +61,43 @@ export function registerAuthRoutes(app: App) {
       if (origin && origin !== env.GOV_WEB_ORIGIN) return reply.status(403).send({ error: "Origin not allowed", code: "ORIGIN" });
 
       const email = req.body.email.trim().toLowerCase();
-      const { rows } = await pool.query(
-        `SELECT id, password_hash, active, failed_attempts, locked_until FROM gov_users WHERE lower(email) = $1`,
-        [email],
-      );
+      const ip = req.ip;
+      // Every failure path answers the same 401 with the same message, so nobody can tell a real account from a
+      // made-up one, or a locked one from a wrong password. The lockout is per (email, address): someone else
+      // typing wrong passwords for this email from another address cannot lock the real person out.
+      const refuse = async (reason: string, userId: string | null) => {
+        await appendAudit(pool, { userId, action: "LOGIN_FAIL", target: email, payload: { reason, ip } });
+        return reply.status(401).send({ error: LOGIN_FAILED_MESSAGE, code: "INVALID_CREDENTIALS" });
+      };
+
+      const lock = await pool.query<{ fails: number; locked_until: Date | null }>(`SELECT fails, locked_until FROM gov_login_failures WHERE email = $1 AND ip = $2`, [email, ip]);
+      const locked = Boolean(lock.rows[0]?.locked_until && new Date(lock.rows[0].locked_until) > new Date());
+
+      const { rows } = await pool.query(`SELECT id, password_hash, active FROM gov_users WHERE lower(email) = $1`, [email]);
       const u = rows[0];
 
-      if (!u || !u.active) {
-        await verifyPassword(await getDummyHash(), req.body.password);
-        await appendAudit(pool, { action: "LOGIN_FAIL", target: email, payload: { reason: u ? "inactive" : "unknown", ip: req.ip } });
-        return reply.status(401).send({ error: "Wrong email or password", code: "INVALID_CREDENTIALS" });
-      }
-      if (u.locked_until && new Date(u.locked_until) > new Date()) {
-        const retry = Math.ceil((new Date(u.locked_until).getTime() - Date.now()) / 1000);
-        await appendAudit(pool, { userId: u.id, action: "LOGIN_FAIL", target: email, payload: { reason: "locked", ip: req.ip } });
-        return reply.status(423).header("Retry-After", String(retry)).send({ error: "Too many wrong attempts. Try again later.", code: "LOCKED", retryAfterSeconds: retry });
-      }
+      // Always spend the same time hashing, whether or not the account exists or is locked.
+      const ok = u && u.active && !locked ? await verifyPassword(u.password_hash, req.body.password) : (await verifyPassword(await getDummyHash(), req.body.password), false);
 
-      const ok = await verifyPassword(u.password_hash, req.body.password);
       if (!ok) {
-        const lock = u.failed_attempts + 1 >= MAX_FAILS;
-        await pool.query(
-          `UPDATE gov_users SET failed_attempts = $2, locked_until = $3 WHERE id = $1`,
-          [u.id, lock ? 0 : u.failed_attempts + 1, lock ? new Date(Date.now() + LOCK_MINUTES * 60_000) : null],
-        );
-        await appendAudit(pool, { userId: u.id, action: "LOGIN_FAIL", target: email, payload: { reason: "bad_password", locked: lock, ip: req.ip } });
-        return reply.status(401).send({ error: "Wrong email or password", code: "INVALID_CREDENTIALS" });
+        if (!locked) {
+          const fails = (lock.rows[0]?.fails ?? 0) + 1;
+          const lockNow = fails >= MAX_FAILS;
+          await pool.query(
+            `INSERT INTO gov_login_failures (email, ip, fails, locked_until, updated_at) VALUES ($1,$2,$3,$4,now())
+             ON CONFLICT (email, ip) DO UPDATE SET fails = EXCLUDED.fails, locked_until = EXCLUDED.locked_until, updated_at = now()`,
+            [email, ip, lockNow ? 0 : fails, lockNow ? new Date(Date.now() + LOCK_MINUTES * 60_000) : null],
+          );
+          return refuse(!u ? "unknown" : !u.active ? "inactive" : lockNow ? "bad_password_locked" : "bad_password", u?.id ?? null);
+        }
+        return refuse("locked", u?.id ?? null);
       }
 
-      await pool.query(`UPDATE gov_users SET failed_attempts = 0, locked_until = NULL WHERE id = $1`, [u.id]);
+      await pool.query(`DELETE FROM gov_login_failures WHERE email = $1 AND ip = $2`, [email, ip]);
       const user = await loadUser(u.id);
-      if (!user) return reply.status(401).send({ error: "Wrong email or password", code: "INVALID_CREDENTIALS" });
+      if (!user) return refuse("inactive", u.id);
       const csrf = await issueSession(req, reply, user.id);
-      await appendAudit(pool, { userId: user.id, action: "LOGIN", target: user.id, payload: { ip: req.ip } });
+      await appendAudit(pool, { userId: user.id, action: "LOGIN", target: user.id, payload: { ip } });
       return reply.send({ accessToken: await signAccessToken(user), expiresIn: ACCESS_TTL_SECONDS, csrfToken: csrf, user });
     },
   );
