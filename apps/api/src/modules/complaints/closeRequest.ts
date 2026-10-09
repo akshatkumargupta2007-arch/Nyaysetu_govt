@@ -12,7 +12,7 @@ import { appendAudit } from "../../lib/audit.js";
 import { signRequest } from "../../lib/signing.js";
 import { requireAuth, requireCsrf } from "../auth/guard.js";
 import { buildWhere } from "./filters.js";
-import { CLOSE_REQUEST_COOLDOWN_MS } from "./routes.js";
+import { cooldownState, lastCloseRequestAt } from "./cooldown.js";
 
 export const CITIZEN_CLOSE_PATH = "/internal/gov/close-request";
 
@@ -58,15 +58,9 @@ export function registerCloseRequestRoute(app: App) {
         return reply.status(409).send({ error: "The work is not marked done, so there is nothing for the citizen to verify yet", code: "WRONG_STATE", status: c.status });
       }
       // 2. at most one request every 24 hours
-      const last = await pool.query<{ at: Date }>(
-        `SELECT created_at AS at FROM complaint_events WHERE ticket_id = $1 AND type = 'CLOSE_REQUESTED_BY_GOV' ORDER BY seq DESC LIMIT 1`,
-        [req.params.id],
-      );
-      const lastGov = await pool.query<{ at: Date }>(`SELECT created_at AS at FROM close_requests WHERE ticket_id = $1 ORDER BY created_at DESC LIMIT 1`, [req.params.id]);
-      const latest = Math.max(last.rows[0] ? new Date(last.rows[0].at).getTime() : 0, lastGov.rows[0] ? new Date(lastGov.rows[0].at).getTime() : 0);
-      if (latest && Date.now() - latest < CLOSE_REQUEST_COOLDOWN_MS) {
-        const retry = Math.ceil((latest + CLOSE_REQUEST_COOLDOWN_MS - Date.now()) / 1000);
-        return reply.status(409).header("Retry-After", String(retry)).send({ error: "A request was already sent in the last 24 hours", code: "TOO_SOON", retryAfterSeconds: retry });
+      const cool = cooldownState(await lastCloseRequestAt(req.params.id));
+      if (cool.inCooldown) {
+        return reply.status(409).header("Retry-After", String(cool.retryAfterSeconds)).send({ error: "A request was already sent in the last 24 hours", code: "TOO_SOON", retryAfterSeconds: cool.retryAfterSeconds });
       }
 
       // 3. ask the citizen stack (signed, one narrow door)

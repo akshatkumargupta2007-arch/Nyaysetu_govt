@@ -172,3 +172,22 @@ describe("GB6 close request: failure and safety", () => {
     expect(routes).not.toMatch(/\/(close|resolve|confirm|reopen)(?![\w-])/); // "/close-request" is fine, "/close" is not
   });
 });
+
+describe("the button and the request agree about the 24-hour rule (no gap before the sync catches up)", () => {
+  const detail = async (n: number) =>
+    (await app.inject({ method: "GET", url: `/api/complaints/${ticketId(n)}`, headers: { authorization: sessions.nat!.auth } })).json().closeRequest;
+
+  it("right after a request is sent, the detail view already says TOO_SOON and a second request is refused", async () => {
+    stubCitizen();
+    expect((await detail(3)).canRequest).toBe(true);
+    expect((await request(ticketId(3), "nat")).statusCode).toBe(200);
+    // nothing has synced back yet (no CLOSE_REQUESTED_BY_GOV event in complaint_events)...
+    expect((await pool.query("SELECT count(*)::int AS n FROM complaint_events WHERE ticket_id = $1 AND type = 'CLOSE_REQUESTED_BY_GOV'", [ticketId(3)])).rows[0].n).toBe(0);
+    // ...but the view must not offer the button again
+    expect(await detail(3)).toMatchObject({ canRequest: false, reason: "TOO_SOON" });
+    const again = await request(ticketId(3), "nat");
+    expect(again.statusCode).toBe(409);
+    expect(again.json().code).toBe("TOO_SOON");
+  });
+});
+

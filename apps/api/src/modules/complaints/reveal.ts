@@ -23,7 +23,8 @@ export function registerRevealRoute(app: App) {
       config: { rateLimit: { max: 60, timeWindow: "1 minute" } },
       schema: {
         params: z.object({ id: z.string().uuid() }),
-        body: z.object({ reporterIndex: z.number().int().min(0).max(499).default(0), reason: z.string().trim().max(200).optional() }).default({ reporterIndex: 0 }),
+        // A reason is mandatory (purpose limitation): it is stored in the reveal log next to the official's name.
+        body: z.object({ reporterIndex: z.number().int().min(0).max(499).default(0), reason: z.string().trim().min(3).max(200) }),
       },
     },
     async (req, reply) => {
@@ -63,7 +64,7 @@ export function registerRevealRoute(app: App) {
       // Log FIRST. If this fails the number is not returned.
       await pool.query(
         `INSERT INTO phone_reveal_log (user_id, ticket_id, public_code, reason, ip, user_agent) VALUES ($1,$2,$3,$4,$5,$6)`,
-        [user.id, req.params.id, complaint.public_code, req.body.reason ?? null, req.ip, String(req.headers["user-agent"] ?? "").slice(0, 300)],
+        [user.id, req.params.id, complaint.public_code, req.body.reason, req.ip, String(req.headers["user-agent"] ?? "").slice(0, 300)],
       );
       await appendAudit(pool, { userId: user.id, action: "REVEAL_PHONE", target: complaint.public_code, payload: { reporterIndex: idx, ip: req.ip } });
 

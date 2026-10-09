@@ -17,7 +17,8 @@ async function login(email: string): Promise<Session> {
   expect(res.statusCode).toBe(200);
   return { auth: `Bearer ${res.json().accessToken}`, csrf: res.json().csrfToken };
 }
-const reveal = (id: string, who: keyof typeof sessions, body: unknown = {}, opts: { noCsrf?: boolean } = {}) => {
+const REASON = { reason: "calling to confirm the location" }; // a reason is mandatory
+const reveal = (id: string, who: keyof typeof sessions, body: unknown = REASON, opts: { noCsrf?: boolean } = {}) => {
   const s = sessions[who]!;
   return app.inject({
     method: "POST", url: `/api/complaints/${id}/reveal-phone`, payload: body as object,
@@ -57,6 +58,15 @@ describe("GB4 reveal phone (Bible test 3)", () => {
     expect(rows[0].at).toBeInstanceOf(Date);
   });
 
+  it("requires a reason: no reason (or a blank one) is a 400, nothing is revealed and nothing is logged", async () => {
+    for (const body of [{}, { reason: "" }, { reason: "  " }, { reason: "ab" }]) {
+      const res = await reveal(ticketId(1), "nat", body);
+      expect(res.statusCode).toBe(400);
+      expect(res.body).not.toContain(ROWS[0]!.phone);
+    }
+    expect(await logRows()).toHaveLength(0);
+  });
+
   it("each reveal adds one row (two reveals = two rows)", async () => {
     await reveal(ticketId(1), "nat");
     await reveal(ticketId(2), "nat");
@@ -72,14 +82,14 @@ describe("GB4 reveal phone (Bible test 3)", () => {
   });
 
   it("is refused without the CSRF token, and then nothing is logged or revealed", async () => {
-    const res = await reveal(ticketId(1), "nat", {}, { noCsrf: true });
+    const res = await reveal(ticketId(1), "nat", REASON, { noCsrf: true });
     expect(res.statusCode).toBe(403);
     expect(res.body).not.toContain(ROWS[0]!.phone);
     expect(await logRows()).toHaveLength(0);
   });
 
   it("needs a login", async () => {
-    const res = await app.inject({ method: "POST", url: `/api/complaints/${ticketId(1)}/reveal-phone`, payload: {} });
+    const res = await app.inject({ method: "POST", url: `/api/complaints/${ticketId(1)}/reveal-phone`, payload: REASON });
     expect(res.statusCode).toBe(401);
   });
 
@@ -92,7 +102,7 @@ describe("GB4 reveal phone (Bible test 3)", () => {
   });
 
   it("an unknown reporter index is a 404 and logs nothing", async () => {
-    expect((await reveal(ticketId(1), "nat", { reporterIndex: 5 })).statusCode).toBe(404);
+    expect((await reveal(ticketId(1), "nat", { ...REASON, reporterIndex: 5 })).statusCode).toBe(404);
     expect(await logRows()).toHaveLength(0);
   });
 
