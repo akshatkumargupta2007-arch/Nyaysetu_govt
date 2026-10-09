@@ -11,11 +11,16 @@ import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findCitizenDir } from './lib/citizen-dir.mjs';
 
 const force = process.argv.includes('--force');
+// Database passwords are only rotated on request: a database that already exists keeps the password it was created
+// with, so rotating them needs a fresh volume (docker compose down -v) or ALTER ROLE.
+const rotateDb = process.argv.includes('--rotate-db');
 const here = dirname(fileURLToPath(import.meta.url));
 const govDir = resolve(here, '..');
-const citizenDir = resolve(govDir, '..', 'NyaySetu_Full_v2');
+// The citizen folder may live anywhere (see scripts/lib/citizen-dir.mjs); fall back to the sibling path for the message.
+const citizenDir = findCitizenDir() ?? resolve(govDir, '..', 'NyaySetu_Full_v2');
 
 const pair = (type) => {
   const { privateKey, publicKey } = generateKeyPairSync(type);
@@ -82,17 +87,18 @@ if (needGov || needCit) {
   };
 }
 // Non-key settings: only fill what is missing.
-const dbPass = gov.GOV_DB_PASSWORD || secret(18);
-const appPass = gov.GOV_APP_DB_PASSWORD || secret(18);
+const dbPass = (!rotateDb && gov.GOV_DB_PASSWORD) || secret(18);
+const appPass = (!rotateDb && gov.GOV_APP_DB_PASSWORD) || secret(18);
 Object.assign(govVals, {
   GOV_DB_PASSWORD: dbPass,
   GOV_APP_DB_PASSWORD: appPass,
-  DATABASE_URL: gov.DATABASE_URL || `postgres://postgres:${dbPass}@localhost:5433/nyaysetu_gov`,
+  DATABASE_URL: (!rotateDb && gov.DATABASE_URL) || `postgres://postgres:${dbPass}@localhost:5433/nyaysetu_gov`,
   PORT: gov.PORT || '8081',
   SYNC_PORT: gov.SYNC_PORT || '8091',
   GOV_WEB_ORIGIN: gov.GOV_WEB_ORIGIN || 'http://localhost:5174',
   CITIZEN_INTERNAL_URL: gov.CITIZEN_INTERNAL_URL || 'http://localhost:8090',
-  GOV_ADMIN_PASSWORD: gov.GOV_ADMIN_PASSWORD || secret(12),
+  // --force also rotates the admin password (it is applied the next time `npm run init:all` / gov:seed runs)
+  GOV_ADMIN_PASSWORD: (!force && gov.GOV_ADMIN_PASSWORD) || secret(12),
 });
 Object.assign(citVals, {
   GOV_SYNC_URL: cit.GOV_SYNC_URL || 'http://localhost:8091',
@@ -108,3 +114,5 @@ console.log(needGov || needCit ? 'Generated a fresh key set.' : 'Keys already pr
 console.log(`Gov env:     ${govEnvFile}`);
 console.log(existsSync(citizenDir) ? `Citizen env: ${citEnvFile}` : `Citizen folder not found (${citizenDir}); run again after it exists.`);
 console.log('Demo admin login: admin@nyaysetu.local, password = GOV_ADMIN_PASSWORD in the gov .env');
+if (force) console.log('Rotated: all keys and the admin password. Database passwords: ' + (rotateDb ? 'rotated too (use a NEW database volume: npm run down:all -- -v)' : 'NOT rotated (add --rotate-db; an existing database keeps its own password)') + '. Restart both stacks and run `npm run init:all` to apply.');
+else if (rotateDb) console.log('Rotated the database passwords. Use a NEW database volume (npm run down:all -- -v) or ALTER ROLE, then run `npm run init:all`.');
