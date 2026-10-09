@@ -5,6 +5,7 @@ import { useI18n } from './i18n/index.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Audit from './pages/Audit.jsx';
+import Pulse from './pages/Pulse.jsx';
 
 function Guard({ children, national = false }) {
   const { user, ready } = useAuth();
@@ -20,7 +21,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={ready && user ? <Navigate to="/" replace /> : <Login />} />
-      <Route path="/" element={<Guard><Dashboard /></Guard>} />
+      <Route path="/" element={<Guard><Pulse /></Guard>} />
+      <Route path="/complaints" element={<Guard><Dashboard /></Guard>} />
       <Route path="/audit" element={<Guard national><Audit /></Guard>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
