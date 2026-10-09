@@ -7,6 +7,24 @@ server {
   index index.html;
   server_tokens off;
 
+  # Same-origin API (used on Railway): the browser calls /api on THIS site and nginx forwards it to the gov API over
+  # the private network. That keeps the login cookies first-party (they are SameSite=Strict, so they would be dropped
+  # if the site and the API had different web addresses). ${API_UPSTREAM} is the gov API's private address.
+  # The address is looked up again every few seconds, so a redeployed API is found without restarting this site.
+  location /api/ {
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
+    set $upstream ${API_UPSTREAM};
+    proxy_pass $upstream;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+    client_max_body_size 40m;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+    add_header Cache-Control "no-store" always;
+  }
+
   # fingerprinted build files can be cached for a year
   location /assets/ {
     include /etc/nginx/conf.d/security-headers.inc;
