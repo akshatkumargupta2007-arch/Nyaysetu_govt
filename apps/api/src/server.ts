@@ -1,6 +1,9 @@
 import { buildApp } from "./app.js";
 import { buildSyncApp } from "./modules/sync/routes.js";
 import { env } from "./env.js";
+import { pool } from "./db/client.js";
+import { startCleanup } from "./lib/cleanup.js";
+import { startPulseJobs } from "./modules/pulse/live.js";
 
 async function main() {
   const app = await buildApp();
@@ -12,6 +15,9 @@ async function main() {
   const sync = await buildSyncApp();
   await sync.listen({ port: env.SYNC_PORT, host: "0.0.0.0" });
   sync.log.info(`internal sync listener on :${env.SYNC_PORT}`);
+
+  startCleanup(pool, (m) => app.log.info(m));
+  startPulseJobs(pool, (m) => app.log.info(m));
 }
 
 main().catch((err) => {

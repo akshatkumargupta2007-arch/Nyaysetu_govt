@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import type { App } from "../../app.js";
 import { pool } from "../../db/client.js";
-import { GEO_DIR } from "../../db/seed.js";
+import { GEO_DIR } from "../../lib/paths.js";
 import { requireAuth } from "../auth/guard.js";
 import { buildWhere, CLOSED_STATES, FilterQuery } from "../complaints/filters.js";
 import { join } from "node:path";

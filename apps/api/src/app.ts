@@ -1,11 +1,11 @@
 // The gov-api Fastify app, assembled but not listening (so tests can build it without a port).
-import Fastify, { type FastifyError } from "fastify";
+import Fastify, { type FastifyError, type FastifyServerOptions } from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import { serializerCompiler, validatorCompiler } from "fastify-type-provider-zod";
-import { env } from "./env.js";
+import { env, parseTrustProxy } from "./env.js";
 import { healthCheck } from "./db/client.js";
 import { registerAuthRoutes } from "./modules/auth/routes.js";
 import { registerComplaintRoutes } from "./modules/complaints/routes.js";
@@ -14,6 +14,8 @@ import { registerStatsRoutes } from "./modules/stats/routes.js";
 import { registerCloseRequestRoute } from "./modules/complaints/closeRequest.js";
 import { registerMapRoutes } from "./modules/map/routes.js";
 import { registerAuditRoutes } from "./modules/audit/routes.js";
+import { registerPulseRoutes } from "./modules/pulse/routes.js";
+import { registerLiveRoutes } from "./modules/pulse/live.js";
 
 // Never log these (Bible section 14): phone numbers, sealed phones, auth headers, cookies.
 export const LOG_REDACT_PATHS = [
@@ -37,7 +39,9 @@ export async function buildApp() {
           : undefined,
     },
     genReqId: () => crypto.randomUUID(),
-    trustProxy: true,
+    // Which proxies to believe about the client address (see TRUST_PROXY in env.ts). Never `true`: that would let
+    // anyone choose their own address with a forged X-Forwarded-For header and slip past every per-address limit.
+    trustProxy: parseTrustProxy(env.TRUST_PROXY) as FastifyServerOptions["trustProxy"],
   });
 
   app.setValidatorCompiler(validatorCompiler);
@@ -92,6 +96,8 @@ export async function buildApp() {
   registerCloseRequestRoute(app);
   registerMapRoutes(app);
   registerAuditRoutes(app);
+  registerPulseRoutes(app);
+  registerLiveRoutes(app);
 
   return app;
 }
