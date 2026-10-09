@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { login as apiLogin, logout as apiLogout, refreshSession, setLoggedOutHandler } from './api/client.js';
+import { login as apiLogin, logout as apiLogout, refreshSession, setLoggedOutHandler } from './client.js';
 
 const Ctx = createContext({ user: null, ready: false, signIn: async () => {}, signOut: async () => {} });
 

@@ -44,6 +44,7 @@ async function raw(path, { method = 'GET', body, headers = {} } = {}) {
       ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
       ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
       ...(method !== 'GET' && getCsrf() ? { 'x-csrf-token': getCsrf() } : {}),
+      ...viewAsHeader(),
       ...headers,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -53,6 +54,12 @@ async function raw(path, { method = 'GET', body, headers = {} } = {}) {
   try { json = text ? JSON.parse(text) : null; } catch { json = null; }
   return { res, json };
 }
+
+// "View as" (demo): a National official may preview the portal as a narrower role. The server only ever narrows.
+const VIEW_AS_KEY = 'gov.viewas';
+export const getViewAs = () => { try { return localStorage.getItem(VIEW_AS_KEY) || ''; } catch { return ''; } };
+export const setViewAs = (role) => { try { role && role !== 'national' ? localStorage.setItem(VIEW_AS_KEY, role) : localStorage.removeItem(VIEW_AS_KEY); } catch { /* ignore */ } };
+const viewAsHeader = () => { const v = getViewAs(); return v ? { 'x-view-as': v } : {}; };
 
 let refreshing = null;
 /** Exchanges the refresh cookie for a new access token. Resolves to the user, or null when logged out. */
@@ -94,6 +101,8 @@ export async function login(email, password) {
 export async function logout() {
   try { await raw('/api/auth/logout', { method: 'POST', body: {} }); } catch { /* ignore */ }
   forget();
+  setViewAs('');
+  onLoggedOut();
 }
 
 /** Builds "?a=1&b=2" from an object, skipping empty values. */
@@ -106,7 +115,7 @@ export const qs = (obj) => {
 
 /** Downloads a file from an authenticated endpoint (a plain link cannot carry our bearer token). */
 export async function download(path, fallbackName) {
-  const send = () => fetch(`${API_URL}${path}`, { credentials: 'include', headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {} });
+  const send = () => fetch(`${API_URL}${path}`, { credentials: 'include', headers: { ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}), ...viewAsHeader() } });
   let res = await send();
   if (res.status === 401) {
     const user = await refreshSession();
@@ -128,4 +137,13 @@ export async function download(path, fallbackName) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/** Fetches a protected image or file and returns a temporary address a picture tag can use. */
+export async function blobUrl(path) {
+  const send = () => fetch(`${API_URL}${path}`, { credentials: 'include', headers: { ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}), ...viewAsHeader() } });
+  let res = await send();
+  if (res.status === 401) { const u = await refreshSession(); if (!u) { onLoggedOut(); throw new ApiError(401, null); } res = await send(); }
+  if (!res.ok) throw new ApiError(res.status, null);
+  return URL.createObjectURL(await res.blob());
 }
