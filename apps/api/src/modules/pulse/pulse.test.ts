@@ -11,7 +11,7 @@ let app: App;
 const tok: Record<string, string> = {};
 beforeAll(async () => {
   await loadFixtures(pool);
-  await pool.query("TRUNCATE complaint_activity, complaint_activity_plain, alerts");
+  await pool.query("TRUNCATE complaint_activity, complaint_activity_plain, alerts CASCADE");
   await upsertUser(pool, { id: "p.nat", name: "N", email: "p.nat@test.local", role: "NATIONAL", password: "x", active: true });
   await upsertUser(pool, { id: "p.ka", name: "K", email: "p.ka@test.local", role: "STATE", scopeState: "KA", password: "x", active: true });
   await upsertUser(pool, { id: "p.cg", name: "C", email: "p.cg@test.local", role: "STATE", scopeState: "CG", password: "x", active: true });
@@ -26,7 +26,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await pool.query("DELETE FROM complaint_activity WHERE synthetic");
-  await pool.query("TRUNCATE complaint_activity_plain, alerts");
+  await pool.query("TRUNCATE complaint_activity_plain, alerts CASCADE");
   await app.close();
   await pool.end();
 });

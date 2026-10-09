@@ -7,7 +7,9 @@ import type { App } from "../../app.js";
 import { env } from "../../env.js";
 import { pool } from "../../db/client.js";
 import { cellCentre } from "../../lib/activity.js";
-import { requireAuth, type AuthUser } from "../auth/guard.js";
+import { requireAuth, requireCsrf, type AuthUser } from "../auth/guard.js";
+import { appendAudit } from "../../lib/audit.js";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { scopeWhere } from "../rbac.js";
 import { cityIds, timed } from "./routes.js";
 
@@ -108,6 +110,89 @@ async function hourlySource(u: AuthUser, p: { lo: string; hi: string }) {
 
 export function registerLiveRoutes(app: App) {
   const typed = app.withTypeProvider<ZodTypeProvider>();
+
+  // ---- one alert: the detail page, its history, and what officials did about it ----
+  const AlertId = z.object({ id: z.coerce.number().int().positive() });
+  async function loadAlert(user: AuthUser, id: number) {
+    const cities = await cityIds(user);
+    if (cities === undefined) return null;
+    const r = await pool.query(`SELECT id, at, kind, city_id, category_l1, observed, expected::float8 AS expected, zscore::float8 AS zscore, status, explanation, synthetic FROM alerts WHERE id = $1`, [id]);
+    const a = r.rows[0];
+    if (!a || (cities && !(a.city_id && cities.includes(a.city_id)))) return null;
+    return a;
+  }
+  typed.get("/api/pulse/alerts/:id", { preHandler: [requireAuth], schema: { params: AlertId } }, async (req, reply) => {
+    const a = await loadAlert(req.user!, req.params.id);
+    if (!a) return reply.status(404).send({ error: "Not found", code: "NOT_FOUND" });
+    const cell: string | null = a.explanation?.cell ?? null;
+    const centre = cell ? cellCentre(cell) : null;
+    const bars = cell ? (await pool.query(
+      `SELECT day, sum(received) FILTER (WHERE category_l1 = $2)::int AS this_cat, sum(received) FILTER (WHERE category_l1 <> $2)::int AS other
+       FROM cell_daily WHERE cell = $1 AND day >= now() - interval '14 days' GROUP BY day ORDER BY day`, [cell, a.category_l1])).rows : [];
+    const notes = (await pool.query(`SELECT at, user_name, action, text FROM alert_notes WHERE alert_id = $1 ORDER BY at DESC LIMIT 30`, [a.id])).rows;
+    const earlier = cell ? (await pool.query(`SELECT id, at, status, observed FROM alerts WHERE explanation->>'cell' = $1 AND id <> $2 ORDER BY at DESC LIMIT 6`, [cell, a.id])).rows : [];
+    let cluster: unknown[] = [];
+    if (centre) {
+      const sc = scopeWhere(req.user!, 3, "c");
+      cluster = (await pool.query(
+        `SELECT c.ticket_id AS id, c.public_code AS code, c.status, cat.names AS category_names, c.created_at
+         FROM complaints c JOIN categories cat ON cat.code = c.category_code
+         WHERE abs(ST_X(c.geom) - $1) < 0.0026 AND abs(ST_Y(c.geom) - $2) < 0.0026 AND c.created_at > now() - interval '7 days' AND ${sc.sql} ORDER BY c.created_at DESC LIMIT 12`, [centre.lng, centre.lat, ...sc.params])).rows;
+    }
+    return reply.send({ alert: { ...a, lat: centre?.lat ?? null, lng: centre?.lng ?? null, cell }, bars, notes, earlier, cluster });
+  });
+  const act = (action: "ack" | "dismiss" | "reopen") => async (req: FastifyRequest<{ Params: { id: number } }>, reply: FastifyReply) => {
+    const a = await loadAlert(req.user!, req.params.id);
+    if (!a) return reply.status(404).send({ error: "Not found", code: "NOT_FOUND" });
+    const status = action === "ack" ? "acknowledged" : action === "dismiss" ? "dismissed" : "open";
+    await pool.query(`UPDATE alerts SET status = $2 WHERE id = $1`, [a.id, status]);
+    await pool.query(`INSERT INTO alert_notes (alert_id, user_id, user_name, action) VALUES ($1,$2,$3,$4)`, [a.id, req.user!.id, req.user!.name, action]);
+    await appendAudit(pool, { userId: req.user!.id, action: `ALERT_${action.toUpperCase()}`, target: `A-${a.id}` }).catch(() => undefined);
+    return reply.send({ ok: true, status });
+  };
+  typed.post("/api/pulse/alerts/:id/ack", { preHandler: [requireAuth, requireCsrf], schema: { params: AlertId } }, act("ack") as never);
+  typed.post("/api/pulse/alerts/:id/dismiss", { preHandler: [requireAuth, requireCsrf], schema: { params: AlertId } }, act("dismiss") as never);
+  typed.post("/api/pulse/alerts/:id/restore", { preHandler: [requireAuth, requireCsrf], schema: { params: AlertId } }, act("reopen") as never);
+  typed.post("/api/pulse/alerts/:id/note", { preHandler: [requireAuth, requireCsrf], schema: { params: AlertId, body: z.object({ note: z.string().trim().min(1).max(500) }) } }, async (req, reply) => {
+    const a = await loadAlert(req.user!, req.params.id);
+    if (!a) return reply.status(404).send({ error: "Not found", code: "NOT_FOUND" });
+    await pool.query(`INSERT INTO alert_notes (alert_id, user_id, user_name, action, text) VALUES ($1,$2,$3,'note',$4)`, [a.id, req.user!.id, req.user!.name, req.body.note]);
+    return reply.send({ ok: true });
+  });
+
+  // Past benchmark runs (National).
+  typed.get("/api/pulse/race/history", { preHandler: [requireAuth] }, async (req, reply) => {
+    if (req.user!.role !== "NATIONAL") return reply.status(403).send(forbidden);
+    const r = await pool.query(`SELECT id, at, total_rows::float8 AS total_rows, synthetic_rows::float8 AS synthetic_rows, best_speedup::float8 AS best_speedup, (storage->>'ratio')::float8 AS storage_ratio FROM benchmark_runs ORDER BY at DESC LIMIT 12`);
+    return reply.send({ runs: r.rows });
+  });
+
+  // The background policies (compression, refresh, retention) with their schedules and last runs (National).
+  typed.get("/api/pulse/policies", { preHandler: [requireAuth] }, async (req, reply) => {
+    if (req.user!.role !== "NATIONAL") return reply.status(403).send(forbidden);
+    const r = await pool.query(
+      `SELECT j.job_id, j.proc_name, j.hypertable_name, j.schedule_interval::text AS schedule, js.last_run_started_at, js.last_run_status, js.next_start, js.total_failures
+       FROM timescaledb_information.jobs j LEFT JOIN timescaledb_information.job_stats js USING (job_id)
+       WHERE j.proc_name LIKE 'policy_%' ORDER BY j.hypertable_name, j.proc_name`);
+    const lag = await pool.query(`SELECT extract(epoch FROM (now() - min(js.last_successful_finish)))::int / 60 AS minutes FROM timescaledb_information.jobs j JOIN timescaledb_information.job_stats js USING (job_id) WHERE j.proc_name = 'policy_refresh_continuous_aggregate' AND js.last_successful_finish IS NOT NULL`);
+    const chunks = await pool.query(`SELECT count(*)::int AS total, count(*) FILTER (WHERE is_compressed)::int AS compressed FROM timescaledb_information.chunks WHERE hypertable_name = 'complaint_activity'`);
+    return reply.send({ policies: r.rows, summaryLagMinutes: lag.rows[0]?.minutes ?? null, chunks: chunks.rows[0] });
+  });
+
+  // Closure Integrity: how repair-proof submissions turned out, per department (groups under 5 are hidden by the page).
+  typed.get("/api/pulse/integrity", { preHandler: [requireAuth] }, async (req, reply) => {
+    const sc = scopeWhere(req.user!, 1, "c");
+    const r = await pool.query(
+      `SELECT coalesce(d.agency_name->>'en', c.department_id, 'Unassigned') AS department, count(*)::int AS total,
+              count(*) FILTER (WHERE e.payload->>'verdict' = 'EVIDENCE_PASSED')::int AS passed_first,
+              count(*) FILTER (WHERE e.payload->>'verdict' IN ('NEEDS_MORE_EVIDENCE','FAILED'))::int AS needed_more,
+              count(*) FILTER (WHERE e.payload->>'verdict' = 'REJECTED')::int AS rejected_reused,
+              count(*) FILTER (WHERE e.payload->>'verdict' = 'NEEDS_HUMAN_REVIEW')::int AS contested
+       FROM complaint_events e JOIN complaints c ON c.ticket_id = e.ticket_id LEFT JOIN departments d ON d.id = c.department_id
+       WHERE e.type IN ('PROOF_REJECTED_REUSED','PROOF_NEEDS_MORE','PROOF_FAILED','PROOF_CONTESTED','PROOF_PASSED') AND ${sc.sql}
+       GROUP BY 1 ORDER BY total DESC`, sc.params);
+    return reply.send({ rows: r.rows, source: "complaint_events", note: "Evidence quality of submissions; never about a named person. Groups under 5 are hidden." });
+  });
 
   // What the database is, in numbers, straight from its own catalog.
   typed.get("/api/pulse/engine", { preHandler: [requireAuth] }, async (_req, reply) => {
@@ -226,14 +311,19 @@ export function registerLiveRoutes(app: App) {
     // Ties can order cells differently, so compare the counts of the top ten, which must be identical.
     const counts = (rows: Record<string, unknown>[]) => JSON.stringify(rows.map((r) => Number(r.n)));
     const topMatch = counts(p2.rows) === counts(h2.rows) && counts(p2.rows) === counts(a2.rows);
-    return reply.send({
-      rows: Number(size.rows),
-      tests: [
+    const synth = Number((await pool.query(`SELECT count(*) AS n FROM complaint_activity WHERE synthetic`)).rows[0].n);
+    const tests = [
         { id: "daily", plain_ms: p1.ms, hypertable_ms: h1.ms, aggregate_ms: a1.ms, speedup: sp(p1.ms, Math.min(h1.ms, a1.ms)), same_answer: sum(p1.rows, "n") === sum(h1.rows, "n") && sum(p1.rows, "n") === sum(a1.rows, "n") },
         { id: "cells", plain_ms: p2.ms, hypertable_ms: h2.ms, aggregate_ms: a2.ms, speedup: sp(p2.ms, Math.min(h2.ms, a2.ms)), same_answer: topMatch },
         { id: "fixtime", plain_ms: p3.ms, hypertable_ms: h3.ms, aggregate_ms: a3.ms, speedup: sp(p3.ms, Math.min(h3.ms, a3.ms)), same_answer: p3.rows.length > 0 && Math.abs(sum(p3.rows, "med") - sum(a3.rows, "med")) / Math.max(1, sum(p3.rows, "med")) < 0.05, note: "aggregate uses a percentile sketch: close, not identical" },
-      ],
-      storage: { plain_bytes: Number(size.plain), tiger_bytes: Number(size.hyper), ratio: Number(size.hyper) > 0 ? Math.round((Number(size.plain) / Number(size.hyper)) * 10) / 10 : null },
+    ];
+    const storage = { plain_bytes: Number(size.plain), tiger_bytes: Number(size.hyper), ratio: Number(size.hyper) > 0 ? Math.round((Number(size.plain) / Number(size.hyper)) * 10) / 10 : null };
+    await pool.query(`INSERT INTO benchmark_runs (total_rows, synthetic_rows, tests, storage, best_speedup, run_by) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [Number(size.rows), synth, JSON.stringify(tests), JSON.stringify(storage), Math.max(...tests.map((t) => t.speedup ?? 0)), req.user!.id]).catch(() => undefined);
+    return reply.send({
+      rows_real: Number(size.rows) - synth, rows_generated: synth, measured_at: new Date().toISOString(),
+      rows: Number(size.rows),
+      tests, storage,
       note: "Same data, same machine, measured when you opened this page, over complete days (up to midnight UTC). Rows marked synthetic are generated, not real complaints.",
     });
   });
