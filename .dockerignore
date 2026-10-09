@@ -1,0 +1,11 @@
+# Keep the build context small and SAFE. Without this, a host's node_modules (built for another operating system)
+# overwrites the ones installed inside the image, and secrets / git history are sent to the builder.
+**/node_modules
+**/dist
+**/coverage
+**/.vite
+**/*.log
+.git
+.env
+.env.*
+!.env.example
