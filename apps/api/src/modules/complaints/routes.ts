@@ -5,9 +5,14 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import type { App } from "../../app.js";
 import { pool } from "../../db/client.js";
 import { requireAuth } from "../auth/guard.js";
-import { buildWhere, CLOSED_STATES, FilterQuery, PRIORITY_RANK_SQL } from "./filters.js";
+import { appendAudit } from "../../lib/audit.js";
+import { buildWhere, CLOSED_STATES, FilterQuery, isPhoneLast4Query, PRIORITY_RANK_SQL } from "./filters.js";
+import { cooldownState, lastCloseRequestAt } from "./cooldown.js";
 
-export const CLOSE_REQUEST_COOLDOWN_MS = 24 * 3_600_000;
+export { CLOSE_REQUEST_COOLDOWN_MS } from "./cooldown.js";
+
+/** Last-four-digit phone lookups an official may run per hour. Each one is written to the audit log. */
+export const PHONE_SEARCHES_PER_HOUR = 20;
 
 const SORTS = ["created_desc", "created_asc", "priority"] as const;
 const ListQuery = FilterQuery.extend({
@@ -72,11 +77,20 @@ const shape = (r: Row) => ({
 function encodeCursor(parts: unknown[]): string {
   return Buffer.from(JSON.stringify(parts)).toString("base64url");
 }
-function decodeCursor(c: string | undefined, width: number): string[] | null {
+// Every cursor part is checked against the exact shape it will be cast to in SQL, so a forged or damaged cursor
+// is a clean 400 and never reaches the database as an invalid ::int / ::timestamptz / ::uuid cast (a 500).
+const CURSOR_PART = {
+  int: /^[0-4]$/,
+  timestamp: /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?([+-]\d{2}(:?\d{2})?|Z)?$/,
+  uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+} as const;
+function decodeCursor(c: string | undefined, shape: (keyof typeof CURSOR_PART)[]): string[] | null {
   if (!c) return null;
   try {
     const v = JSON.parse(Buffer.from(c, "base64url").toString());
-    return Array.isArray(v) && v.length === width && v.every((x) => typeof x === "string" || typeof x === "number") ? v.map(String) : null;
+    if (!Array.isArray(v) || v.length !== shape.length) return null;
+    const parts = v.map((x) => (typeof x === "string" || typeof x === "number" ? String(x) : ""));
+    return parts.every((x, i) => CURSOR_PART[shape[i]!].test(x)) ? parts : null;
   } catch {
     return null;
   }
@@ -88,12 +102,21 @@ export function registerComplaintRoutes(app: App) {
   // ── GB1: list ───────────────────────────────────────────────────────────────
   typed.get("/api/complaints", { preHandler: [requireAuth], schema: { querystring: ListQuery } }, async (req, reply) => {
     const { sort, limit, cursor, ...filters } = req.query;
-    const where = buildWhere(req.user!, filters);
+    const where = buildWhere(req.user!, filters, 1, { phoneSearch: true });
+
+    // A "last four digits" lookup narrows complaints down to one person, so it is limited and audited (the
+    // digits themselves are never written down). Only the first page counts; scrolling does not repeat it.
+    if (isPhoneLast4Query(filters.q) && !cursor) {
+      const recent = await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM gov_audit_log WHERE user_id = $1 AND action = 'PHONE_SEARCH' AND at > now() - interval '1 hour'`, [req.user!.id]);
+      if (recent.rows[0]!.n >= PHONE_SEARCHES_PER_HOUR) {
+        return reply.status(429).header("Retry-After", "3600").send({ error: "Too many phone-digit searches this hour", code: "PHONE_SEARCH_LIMIT" });
+      }
+      await appendAudit(pool, { userId: req.user!.id, action: "PHONE_SEARCH", target: "last4" });
+    }
     const params = [...where.params];
     let sql = where.sql;
     let order: string;
-    const width = sort === "priority" ? 3 : 2;
-    const c = decodeCursor(cursor, width);
+    const c = decodeCursor(cursor, sort === "priority" ? ["int", "timestamp", "uuid"] : ["timestamp", "uuid"]);
     if (cursor && !c) return reply.status(400).send({ error: "Invalid cursor", code: "VALIDATION" });
 
     if (sort === "priority") {
@@ -168,9 +191,9 @@ export function registerComplaintRoutes(app: App) {
     ]);
 
     const requests = events.rows.filter((e) => e.type === "CLOSE_REQUESTED_BY_GOV");
-    const lastRequestAt = requests.length ? new Date(requests[requests.length - 1].created_at).getTime() : 0;
-    const cooldownUntil = lastRequestAt ? new Date(lastRequestAt + CLOSE_REQUEST_COOLDOWN_MS) : null;
-    const inCooldown = cooldownUntil ? cooldownUntil.getTime() > Date.now() : false;
+    const cool = cooldownState(await lastCloseRequestAt(req.params.id)); // same rule the request itself enforces
+    const cooldownUntil = cool.until;
+    const inCooldown = cool.inCooldown;
     const awaiting = r.status === "WORK_DONE_PENDING_CONFIRMATION";
 
     return reply.send({

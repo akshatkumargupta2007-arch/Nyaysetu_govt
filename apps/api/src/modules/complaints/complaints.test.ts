@@ -4,6 +4,7 @@ import { pool } from "../../db/client.js";
 import { upsertUser } from "../../db/seed.js";
 import { signAccessToken } from "../../lib/tokens.js";
 import { loadFixtures, ROWS, ticketId, codeOf } from "../../test/fixtures.js";
+import { buildWhere } from "./filters.js";
 
 let app: App;
 const tokens: Record<string, string> = {};
@@ -220,3 +221,83 @@ describe("GB3 detail", () => {
     expect((await get("/api/complaints/not-a-uuid")).statusCode).toBe(400);
   });
 });
+
+describe("pagination cursors are validated (a forged cursor is a clean 400, not a 500)", () => {
+  const cur = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64url");
+  const bad = [
+    ["priority", cur(["x", "y", "z"])],
+    ["priority", cur([9, "2026-10-01 05:00:00+00", "00000000-0000-4000-8000-000000000001"])],
+    ["priority", cur([1, "2026-10-01", "not-a-uuid"])],
+    ["created_desc", cur(["not-a-date", "00000000-0000-4000-8000-000000000001"])],
+    ["created_desc", cur(["2026-10-01 05:00:00+00"])],
+    ["created_asc", "%%%not-base64%%%"],
+  ] as const;
+  for (const [sort, cursor] of bad) {
+    it(`rejects a bad ${sort} cursor`, async () => {
+      expect((await get(`/api/complaints?sort=${sort}&cursor=${cursor}`)).statusCode).toBe(400);
+    });
+  }
+  it("still follows the real cursors it hands out, for every sort", async () => {
+    for (const sort of ["created_desc", "created_asc", "priority"]) {
+      const seen: string[] = [];
+      let next: string | null | undefined;
+      do {
+        const r = await list(`limit=5&sort=${sort}${next ? `&cursor=${next}` : ""}`);
+        seen.push(...r.items.map((i) => i.code));
+        next = r.nextCursor;
+      } while (next);
+      expect(new Set(seen).size).toBe(12);
+    }
+  });
+});
+
+describe("phone-digit search is limited, audited, and only the list uses it", () => {
+  const audited = async () => (await pool.query("SELECT user_id, action, target, payload FROM gov_audit_log WHERE action = 'PHONE_SEARCH' ORDER BY id")).rows;
+  it("finds the complaint by the last four digits and writes an audit row without the digits", async () => {
+    const before = (await audited()).length;
+    const r = await list("q=3221");
+    expect(r.items.map((i) => i.code)).toEqual([codeOf(ROWS[0]!)]);
+    const rows = await audited();
+    expect(rows.length).toBe(before + 1);
+    expect(JSON.stringify(rows[rows.length - 1])).not.toContain("3221");
+    expect(rows[rows.length - 1]).toMatchObject({ user_id: "t.nat", target: "last4" });
+  });
+
+  it("scrolling to the next page does not count as another search", async () => {
+    const before = (await audited()).length;
+    await list("q=3222&limit=1");
+    expect((await audited()).length).toBe(before + 1);
+  });
+
+  it("a text search is not a phone search and writes nothing", async () => {
+    const before = (await audited()).length;
+    await list("q=Fixture");
+    await list("q=ab12");
+    expect((await audited()).length).toBe(before);
+  });
+
+  it("counts, groups, KPIs and the export never match on phone digits (they would leak them unlogged)", async () => {
+    expect((await (await get("/api/complaints/groups?groupBy=state&q=3221")).json()).total).toBe(0);
+    expect((await (await get("/api/stats/kpis?q=3221")).json()).kpis.received).toBe(0);
+    // the CSV export builds its WHERE with the same function (checked here, not by calling the export: that
+    // would add an EXPORT row in the middle of the audit chain, which the audit tests clear between runs)
+    const user = { id: "u", name: "u", email: "u@x", role: "NATIONAL", scopeState: null, scopeDistrict: null, scopeCity: null, scopeDepartment: null } as const;
+    expect(buildWhere(user, { q: "3221" }).sql).not.toContain("phone_last4");
+    expect(buildWhere(user, { q: "3221" }, 1, { phoneSearch: true }).sql).toContain("phone_last4");
+  });
+
+  it("stops after 20 searches an hour, per official", async () => {
+    // a fresh official, so earlier tests' searches (and the audit rows, which must never be deleted) do not count
+    const id = `t.phone.${Date.now()}`; // new each run: the audit log is permanent, so old searches would still count
+    await upsertUser(pool, { id, name: "Phone Searcher", email: `${id}@test.local`, role: "NATIONAL", password: "x", active: true });
+    tokens.phone = await signAccessToken({ id, role: "NATIONAL" });
+    const { PHONE_SEARCHES_PER_HOUR } = await import("./routes.js");
+    for (let i = 0; i < PHONE_SEARCHES_PER_HOUR; i++) expect((await get(`/api/complaints?q=${String(1000 + i)}`, "phone")).statusCode).toBe(200);
+    const over = await get("/api/complaints?q=9999", "phone");
+    expect(over.statusCode).toBe(429);
+    expect(over.json().code).toBe("PHONE_SEARCH_LIMIT");
+    expect((await get("/api/complaints?q=9999", "ka")).statusCode).toBe(200); // someone else is not affected
+    expect((await get("/api/complaints?q=Fixture", "phone")).statusCode).toBe(200); // text searches are not limited
+  });
+});
+
