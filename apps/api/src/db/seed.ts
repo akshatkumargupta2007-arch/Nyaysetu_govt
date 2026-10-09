@@ -1,14 +1,14 @@
 // GA3: reference seed. Loads the geography (states, districts, cities, category groups) and creates the demo
 // admin plus one scoped user per role. Idempotent: running it twice changes nothing but refreshes names.
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { GEO_DIR } from "../lib/paths.js";
 import { hashPassword } from "../lib/password.js";
 import pg from "pg";
 
-const here = dirname(fileURLToPath(import.meta.url));
-export const GEO_DIR = join(here, "../../../../data/geo");
+export { GEO_DIR };
 
 const readJson = <T>(file: string): T => JSON.parse(readFileSync(join(GEO_DIR, file), "utf8")) as T;
 
@@ -71,9 +71,23 @@ export async function upsertUser(db: pg.ClientBase | pg.Pool, u: SeedUser): Prom
   );
 }
 
-export async function seedUsers(db: pg.ClientBase | pg.Pool, adminPassword: string): Promise<void> {
-  // The demo login: national scope, active.
-  await upsertUser(db, { id: "admin", name: "Demo Admin", email: "admin@nyaysetu.local", role: "NATIONAL", password: adminPassword, active: true });
+export const MIN_ADMIN_PASSWORD_LENGTH = 14;
+export const DEMO_ADMIN_EMAIL = "admin@nyaysetu.local";
+
+/** What the seed may do with the administrator account. Returns the problems (empty = fine). */
+export function adminSeedProblems(opts: { production: boolean; email: string; password: string }): string[] {
+  const problems: string[] = [];
+  if (opts.password.length < MIN_ADMIN_PASSWORD_LENGTH) problems.push(`GOV_ADMIN_PASSWORD must be at least ${MIN_ADMIN_PASSWORD_LENGTH} characters`);
+  if (opts.production) {
+    if (!opts.email || /@nyaysetu\.local$/i.test(opts.email)) problems.push("GOV_ADMIN_EMAIL must be a real address in production (not the @nyaysetu.local demo address)");
+  }
+  return problems;
+}
+
+export async function seedUsers(db: pg.ClientBase | pg.Pool, adminPassword: string, opts: { adminEmail?: string; demoUsers?: boolean } = {}): Promise<void> {
+  // The first administrator: national scope, active.
+  await upsertUser(db, { id: "admin", name: "Administrator", email: opts.adminEmail || DEMO_ADMIN_EMAIL, role: "NATIONAL", password: adminPassword, active: true });
+  if (opts.demoUsers === false) return; // production: no demo accounts at all
   // One user per role for RBAC tests. Inactive and without a known password, so they cannot log in.
   await upsertUser(db, { id: "demo.state", name: "Demo State User (CG)", email: "state.cg@nyaysetu.local", role: "STATE", scopeState: "CG", active: false });
   await upsertUser(db, { id: "demo.district", name: "Demo District User (Durg)", email: "district.durg@nyaysetu.local", role: "DISTRICT", scopeState: "CG", scopeDistrict: "CG.DURG", active: false });
@@ -84,19 +98,23 @@ export async function seedUsers(db: pg.ClientBase | pg.Pool, adminPassword: stri
 async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is required");
+  const production = process.env.NODE_ENV === "production";
+  const adminEmail = (process.env.GOV_ADMIN_EMAIL ?? "").trim() || (production ? "" : DEMO_ADMIN_EMAIL);
   let adminPassword = process.env.GOV_ADMIN_PASSWORD ?? "";
   let generated = false;
-  if (!adminPassword) {
-    adminPassword = randomBytes(12).toString("base64url");
+  if (!adminPassword && !production) {
+    adminPassword = randomBytes(18).toString("base64url");
     generated = true;
   }
+  const problems = adminSeedProblems({ production, email: adminEmail, password: adminPassword });
+  if (problems.length) throw new Error(`refusing to seed the administrator:\n  - ${problems.join("\n  - ")}`);
   const client = new pg.Client({ connectionString: url });
   await client.connect();
   try {
     const { states } = await seedGeo(client);
-    await seedUsers(client, adminPassword);
-    console.log(`seeded ${states} states/UTs, districts, cities, category groups, and users`);
-    console.log("demo admin: admin@nyaysetu.local");
+    await seedUsers(client, adminPassword, { adminEmail, demoUsers: !production });
+    console.log(`seeded ${states} states/UTs, districts, cities, category groups, and ${production ? "the administrator" : "users"}`);
+    console.log(`administrator: ${adminEmail}`);
     if (generated) console.log(`GOV_ADMIN_PASSWORD was not set; generated for this run only: ${adminPassword}`);
     else console.log("password: GOV_ADMIN_PASSWORD from the gov .env");
   } finally {
