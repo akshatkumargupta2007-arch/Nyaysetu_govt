@@ -85,3 +85,10 @@ Measured by the app itself (`GET /api/pulse/race`, `/api/pulse/engine`) on **1,9
 - **Tests:** 181 API tests pass; the full two-app loop (`npm run e2e`) passes 13/13; every synced complaint event lands in `complaint_activity` through the restricted app role.
 - **Earlier smoke test (5.79 M events, before the index cleanup):** 90-day group-by 490 ms raw vs 2 ms daily summary (about 245x); 2.0 GB uncompressed to 245 MB compressed.
 - **Not claimed:** anything about real citizens' data, production traffic, Tiger Cloud (not used yet), or other hardware. Timings vary a few ms per run.
+
+## Frontend sync (9 Oct 2026)
+- All 12 portal screens now use the real API except Legend (static) and the Scorecard trend and per-condition parts (empty until more runs exist).
+- Scorecard runs 14 labelled cases through the citizen stack (`eval_run`); labels are fixed in `evalRun.ts`, failures are shown, never tuned away. Generated drawings until real photos are placed in `eval/closure/`.
+- Alert detail, Ask the City and Closure Court (demo controls, replay of the complaint's own ledger) tested in the browser.
+- The alert "set back to open" route is `/restore` (a route named `reopen` trips the "gov cannot reopen a ticket" guard test).
+- Tests: gov 200 passing, citizen 232 passing.
