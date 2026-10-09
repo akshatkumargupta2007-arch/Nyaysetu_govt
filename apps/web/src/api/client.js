@@ -1,24 +1,30 @@
 // GC0: every call to the gov API goes through here.
 //  - the access token lives in memory only (never in storage); the refresh token is an httpOnly cookie
-//  - the CSRF token is kept in sessionStorage (one tab) and sent as x-csrf-token on every mutating call
+//  - the CSRF token is kept in localStorage so EVERY tab sees the latest one. The refresh cookie and the CSRF cookie
+//    are shared by all tabs and rotate on every refresh; a per-tab copy would go stale and sign that tab out.
 //  - a 401 triggers ONE silent refresh and a retry; if that fails the person is sent to the login page
+//  - refreshes take a browser-wide lock (Web Locks), so two tabs never refresh at the same moment (the server
+//    would read the second one as a stolen token and end the whole session)
 export const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8081').replace(/\/$/, '');
 
+const CSRF_KEY = 'govcsrf';
 let accessToken = '';
-let csrf = '';
-try { csrf = sessionStorage.getItem('govcsrf') || ''; } catch { /* storage blocked: stay logged out on reload */ }
+let csrfMemory = ''; // fallback when storage is blocked (then only this tab works, as before)
+const getCsrf = () => {
+  try { return localStorage.getItem(CSRF_KEY) || csrfMemory; } catch { return csrfMemory; }
+};
 let onLoggedOut = () => {};
 export const setLoggedOutHandler = (fn) => { onLoggedOut = fn; };
 
 function remember(session) {
   accessToken = session.accessToken;
-  csrf = session.csrfToken;
-  try { sessionStorage.setItem('govcsrf', csrf); } catch { /* ignore */ }
+  csrfMemory = session.csrfToken;
+  try { localStorage.setItem(CSRF_KEY, session.csrfToken); } catch { /* ignore */ }
 }
 function forget() {
   accessToken = '';
-  csrf = '';
-  try { sessionStorage.removeItem('govcsrf'); } catch { /* ignore */ }
+  csrfMemory = '';
+  try { localStorage.removeItem(CSRF_KEY); } catch { /* ignore */ }
 }
 
 export class ApiError extends Error {
@@ -37,7 +43,7 @@ async function raw(path, { method = 'GET', body, headers = {} } = {}) {
     headers: {
       ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
       ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
-      ...(method !== 'GET' && csrf ? { 'x-csrf-token': csrf } : {}),
+      ...(method !== 'GET' && getCsrf() ? { 'x-csrf-token': getCsrf() } : {}),
       ...headers,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -52,15 +58,17 @@ let refreshing = null;
 /** Exchanges the refresh cookie for a new access token. Resolves to the user, or null when logged out. */
 export function refreshSession() {
   if (!refreshing) {
-    refreshing = (async () => {
-      if (!csrf) return null;
+    const run = async () => {
+      if (!getCsrf()) return null;
       try {
         const { res, json } = await raw('/api/auth/refresh', { method: 'POST', body: {} });
         if (res.ok && json?.accessToken) { remember(json); return json.user; }
-      } catch { /* network down */ }
-      forget();
+        if (res.status === 401 || res.status === 403) forget(); // the session is really over (all tabs)
+      } catch { /* network down: keep the CSRF token so the next try can succeed */ }
       return null;
-    })().finally(() => { refreshing = null; });
+    };
+    // One refresh at a time across ALL tabs (the browser queues the others, which then use the new cookie).
+    refreshing = (navigator.locks?.request ? navigator.locks.request('gov-session-refresh', run) : run()).finally(() => { refreshing = null; });
   }
   return refreshing;
 }
