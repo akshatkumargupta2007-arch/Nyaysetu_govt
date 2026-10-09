@@ -7,9 +7,9 @@ Built from `GOVERNMENT_BIBLE.md` and `GOV_BUILD_MAP.md`; the six research report
 
 | Folder | What it is |
 |---|---|
-| `A:\Nyaysetu_main\NyaySetu_Full` | **Your original citizen app. Not touched** (it still shows the same 84 uncommitted files it had before I started). |
-| `A:\Nyaysetu_main\NyaySetu_Full_v2` | A copy of it with the government bridge added (all citizen-side changes live only here). Git history kept; 8 local commits after the baseline commit. |
-| `A:\Nyaysetu_main\NyaySetu_Gov` | The new, completely separate government portal (own API, own database, own web app, own keys). about 40 local commits. Nothing was pushed anywhere. |
+| `NyaySetu_Full` | **Your original citizen app. Not touched** (it still shows the same 84 uncommitted files it had before I started). |
+| `NyaySetu_Full_v2` | A copy of it with the government bridge added (all citizen-side changes live only here). Git history kept; 8 local commits after the baseline commit. |
+| `NyaySetu_Gov` | The new, completely separate government portal (own API, own database, own web app, own keys). about 40 local commits. Nothing was pushed anywhere. |
 
 ## 2. The loop, working end to end (verified)
 
@@ -28,18 +28,18 @@ Built from `GOVERNMENT_BIBLE.md` and `GOV_BUILD_MAP.md`; the six research report
 
 **Everything in Docker (recommended):**
 ```
-cd A:\Nyaysetu_main\NyaySetu_Gov
+cd NyaySetu_Gov
 npm run up:all          # builds and starts 6 containers
 npm run init:all        # first time only: creates both databases and loads reference data
 npm run e2e             # proves the whole loop
 npm run down:all        # stop
 ```
 - Gov portal http://localhost:5174, gov API :8081. Citizen app http://localhost:5175, citizen API :8082 (these ports keep it away from your original stack on 8080/5173).
-- `init:all` needs the Gemini key already in `NyaySetu_Full_v2\.env` (the knowledge base is embedded). It skips the 150 fake demo tickets (`SEED_SKIP_HISTORY=1`), because a free Gemini key cannot embed that many per minute.
+- `init:all` needs the Gemini key already in `NyaySetu_Full_v2/.env` (the knowledge base is embedded). It skips the 150 fake demo tickets (`SEED_SKIP_HISTORY=1`), because a free Gemini key cannot embed that many per minute.
 
 **Logins**
-- Gov admin: `admin@nyaysetu.local`, password = `GOV_ADMIN_PASSWORD` in `NyaySetu_Gov\.env` (generated; I did not print it anywhere). Four other role users exist but are switched off (for RBAC tests).
-- Citizen app: any phone number; the demo code is the fixed OTP from `NyaySetu_Full_v2\.env` (`123456`).
+- Gov admin: `admin@nyaysetu.local`, password = `GOV_ADMIN_PASSWORD` in `NyaySetu_Gov/.env` (generated; I did not print it anywhere). Four other role users exist but are switched off (for RBAC tests).
+- Citizen app: any phone number; the demo code is the fixed OTP from `NyaySetu_Full_v2/.env` (`123456`).
 - Demo field officer used by the helper script: `cg.bhilai.bmc_field_supervisor`, passcode `1234` (demo seed data only).
 
 **What is running on your machine right now** (stop them when you are done):
@@ -49,7 +49,7 @@ npm run down:all        # stop
 
 **Demo helper:** `node scripts/demo-workdone.mjs [BHI-26-xxxxxx]` moves one complaint to "work done" through the real officer endpoints, so you can show the loop live. `E2E_STOP_AFTER_REQUEST=1 node scripts/e2e.mjs` runs the loop up to the official's request and stops, printing a phone number to log in as.
 
-**Tests:** gov `cd apps/api && npx vitest run` (11 files, 132 tests). Citizen copy `cd NyaySetu_Full_v2\apps\api && npx vitest run` (26 files, 185 tests; the original had 133). Each uses its own test database; neither touches your dev data.
+**Tests:** gov `cd apps/api && npx vitest run` (11 files, 132 tests). Citizen copy `cd NyaySetu_Full_v2/apps/api && npx vitest run` (26 files, 185 tests; the original had 133). Each uses its own test database; neither touches your dev data.
 
 ## 4. What was built (by ticket)
 
@@ -59,7 +59,7 @@ Highlights: separate stacks with signed channels (Ed25519 both ways, nonce repla
 ## 5. Not done, or only partly
 
 - **CA9 (officer login hardening) is half done:** officer passcodes are now bcrypt (old SHA-256 hashes upgrade on first login; the login is rate-limited and least-privilege). **Still not done:** officers and citizens in the citizen app still share one `JWT_SECRET` (no separate `OFFICER_JWT_SECRET` or audience claims). The gov portal is unaffected (it rejects any token with a `kind` claim or the wrong algorithm, issuer or audience; tested).
-- **Gov web has no production image** (only a dev Dockerfile). The gov **API** production image builds and its startup check works.
+- ~~Gov web has no production image~~ **Fixed 2026-10-09:** `apps/web/Dockerfile` (nginx + strict Content-Security-Policy). Both production images build.
 - **Mocks (GC0 "mock layer"):** skipped on purpose; the real API existed first.
 - **TOTP / 2FA** for officials: the column exists, nothing uses it.
 - **Real voice/camera on the re-report screen:** the screen is built and the logic mirrors the Speak/Photo screens, but the browser pane I tested in blocks the microphone and camera, so it needs one try on a real phone. Typing and sending were tested through the real screens.
@@ -101,10 +101,44 @@ Highlights: separate stacks with signed channels (Ed25519 both ways, nonce repla
 - Logs: I scanned both stacks' logs after the e2e run. Found and fixed one leak I had introduced (the live-stream token in the citizen request log); it is redacted now and unit-tested.
 - `npm audit`: 2 moderate findings in `react-router` 6 (open redirect via backslash; SSR hydration). Not reachable here (no server rendering; only fixed internal routes). The fix is the breaking v7 upgrade, which I did not force. Same finding exists in your original citizen app.
 - The original citizen demo still logs the OTP code outside production by design; its startup safety check stops that in production.
-- Before any real deployment: set a real `gov_app` database role (the migration creates it when `GOV_APP_DB_PASSWORD` is set), HTTPS everywhere, `NODE_ENV=production` (the gov API then refuses to start with missing keys, the default DB password, or a non-https web address), and rotate every key (`npm run gov:keys -- --force`, on both sides together).
+- Before any real deployment: HTTPS everywhere and `NODE_ENV=production`. The gov API then **refuses to start** with missing keys, the default DB password, a non-https web address, a database user other than `gov_app`, or no `TRUST_PROXY`. Rotate keys with `npm run gov:keys -- --force` (both sides together; add `--rotate-db` for the database passwords, with a fresh volume).
 
 ## 9. Known rough edges
 
 - The first sync after a restart can take up to 30 seconds (the sweep interval); changes made through the app normally arrive in a few seconds.
 - The browser pane could not show the microphone prompt; mic/camera need a real device.
 - Fake `TEST-*` tickets from earlier test runs were removed from the dev copy, but your original dev database still contains whatever your own testing created (135 tickets).
+
+## 10. Changes made after the code review (2026-10-09)
+
+A review found 21 issues; all were fixed. Tests: gov API 132 -> 163, citizen API 185 -> 188, full-stack `npm run e2e` 13/13 on a cold start with rotated keys.
+
+**Setup on this machine**
+- The two apps no longer have to be sibling folders. `CITIZEN_DIR` (env or gov `.env`) wins; otherwise `../NyaySetu_Full_v2`, then `~/Documents/NyaySetu_Full_v2`. Used by `up:all`, `down:all`, `init:all`, `gov:keys`.
+- Gov database image rebuilt on `postgres:17-bookworm` + PGDG (the old `postgis/postgis` base has no arm64 build, so it failed on Apple Silicon).
+- `.gitattributes` (LF everywhere) in both repos; the Windows CRLF noise is gone.
+- Root `.dockerignore` in both repos. Without it the host's `node_modules` overwrote the container's (`vite: Permission denied`) and `.git`/`.env` were sent to the builder.
+- `init:all` retries the Gemini-backed knowledge-base seed (Google answers 503 now and then).
+- Keys, admin password and database passwords were rotated (the previous `.env` was inside a zip in Downloads).
+
+**Security**
+- `TRUST_PROXY` (hop count or proxy IPs, never `true`): a forged `X-Forwarded-For` no longer defeats rate limits or lockouts. Required in production.
+- Login: wrong password, unknown email, inactive account and locked device all give the same 401; the lockout is per (email, address) in `gov_login_failures`, so a stranger cannot lock the real official out. No more 423.
+- Phone search by last 4 digits: only the complaints list uses it, 20 per official per hour, every search written to the audit log (no digits). Counts, maps, KPIs and the CSV export never match on phone digits.
+- Phone reveal needs a reason (3+ characters), also enforced in the web app.
+- Production requires the restricted `gov_app` database user; the combined Docker stack now runs as `gov_app` too. The migration runs as the owner via `MIGRATE_DATABASE_URL`.
+- Map tooltips escape their text; the gov web app loads no third-party fonts; the production web image sends a strict CSP (the base map still loads tiles from tile.openstreetmap.org).
+- Seed: production needs a real `GOV_ADMIN_EMAIL` and a 14+ character password and creates no demo accounts.
+
+**Bugs**
+- A damaged pagination cursor is a 400, not a 500.
+- Several browser tabs no longer sign each other out (CSRF token shared via localStorage, refresh under a Web Lock).
+- Citizen side: a ticket gov rejects backs off (2, 4, 8 ... minutes, max 24 h) instead of being re-sent every 30 s; gov records the same rejection once per hour; one bad boundary no longer fails a whole batch.
+- Citizen side: **the gov-sync sweep can no longer crash the API** (it did when the database was not migrated yet, and would whenever the database restarted).
+- The close-request button and the request itself now use one cooldown rule (no 30-second gap).
+- Hourly cleanup of old sessions, login counters, sync errors and nonces (never the audit or reveal logs).
+- `GEMINI_TIMEOUT_MS` setting (default still 6000; the dev stack uses 20000).
+
+**Production commands**: `npm run migrate:prod` (as the owner, `MIGRATE_DATABASE_URL`), `npm run seed:prod`; the removed unused packages are drizzle-orm, drizzle-kit, h3-js, pino.
+
+**Still true / left as is**: reveals do not notify the citizen (a product decision); the base map uses OpenStreetMap tiles; the gov login lockout is per address, so a distributed guessing attack is stopped only by argon2 cost and the 10-per-minute-per-address limit.

@@ -1,5 +1,7 @@
 # NyaySetu Gov: build progress
-Follows `A:\Nyaysetu_main\GOV_BUILD_MAP.md`. One line per ticket: `- [x] ID: title: commit: notes`.
+
+**Status as of 2026-10-09: every ticket below is done, reviewed and fixed.** 163 API tests pass (13 files), the production web image builds, and the full two-app loop (`npm run e2e`) passes 13 of 13 checks on the six-container Docker stack from a cold start. The only item still marked half-done is CA9 (citizen-app officers still share one JWT secret with citizens; the gov portal is not affected). Not deployed; no git remote. The overall picture, both apps, known gaps and next steps are in the citizen repo's `PROGRESS.md` (`NyaySetu_Full_v2/PROGRESS.md`); the 21 review fixes are in `HANDOFF.md` section 10.
+Follows `GOV_BUILD_MAP.md`. One line per ticket: `- [x] ID: title: commit: notes`.
 Prototype only. Not an official government website.
 
 - [x] G01: scaffold: 4e3a74b: workspaces api/web, infra/db (postgis 17-3.5), .gitignore, .env.example
@@ -50,3 +52,36 @@ Prototype only. Not an official government website.
 - [x] GX4: security checks: v2 1871016 + gov: (1) tests: gov 10 files / 128 pass; citizen copy 25 files / 175 pass (baseline was 133). (2) npm audit --omit=dev: 2 moderate, both react-router 6 (open redirect via backslash in <Link>/useNavigate; SSR hydration); not exploitable here (no SSR, only fixed internal routes), the fix is a breaking v7 upgrade, deliberately NOT forced unattended (same finding exists in the original citizen app). (3) secrets scan of everything tracked in both repos + history: 0 private keys, 0 key material, 0 API keys, 0 tracked .env. (4) log scan of both live containers after the e2e run: found + FIXED one real leak (the citizen app logged /me/stream?token=<login token>; now redacted, unit-tested, re-verified live); remaining matches were fragments of request UUIDs. No phone numbers, tokens, cookies or sealed data in gov logs. Known and left alone: the ORIGINAL citizen demo logs the OTP code when NODE_ENV!=production or DEMO_MODE (by design for the demo; production is guarded by the startup safety check).
 - [x] GX5: HANDOFF.md: written (what exists, how to run, logins, what is running, not done, 15 decisions, VERIFY list, security notes).
 - [~] CA9: officer auth hardening: PARTLY done: v2 fdb74a6: C2 done: passcodes bcrypt cost 12 (seed + login), old SHA-256 hashes upgrade on first successful login, agency-only login picks the lowest-level officer, wrong id vs wrong passcode indistinguishable (timing + message), login rate-limited 10/min (10 tests). NOT done: C1, a separate OFFICER_JWT_SECRET / aud claims (officer and citizen tokens still share JWT_SECRET; the gov portal is unaffected).
+
+## Review fixes (2026-10-09)
+All 21 findings of the code review were fixed and verified (gov API 163 tests, citizen API 188, e2e 13/13 from a cold start). Full list and the new settings (`CITIZEN_DIR`, `TRUST_PROXY`, `MIGRATE_DATABASE_URL`, `GOV_ADMIN_EMAIL`, `GEMINI_TIMEOUT_MS`): `HANDOFF.md` section 10.
+
+
+## Tiger Data (TimescaleDB) layer: added 2026-10-09 (rebuilt as the portal's front page)
+Civic Pulse is now the page the portal opens on (`/`); the complaints table moved to `/complaints`.
+- Engine: gov DB is `timescale/timescaledb-ha:pg17` (an old local gov volume starts empty once; `npm run init:all` re-seeds).
+- Migrations: `0004_timeseries.sql` (hypertables `complaint_activity`, `team_positions`, `ai_calls`, `eval_runs`; continuous aggregates hourly→daily→weekly, `cell_daily`, `resolution_daily` with percentile sketch, `sla_hourly`, `ai_health_minutely`; compression + retention; `analyst_ro`) and `0005_plain_mirror.sql` (an ordinary-Postgres twin kept in step by a trigger, only so the race is a fair fight). A migration starting with `-- migrate: statements` is run one query at a time (split on `-- @@`).
+- Feed: every synced ticket's events are mirrored into `complaint_activity` (REPORT_CREATED stored as REPORT_RECEIVED). The app role can only insert there.
+- API `/api/pulse/*` (role-scoped): `live` (events/sec, feed), `engine` (catalog facts), `forecast` (this hour of the week vs the last 4 weeks, +-2 sd, next 24 h), `trend`, `resolution`, `sla`, `cells`, `hotspots`, `alerts` (a background job runs every 15 s; one alert per cell per day), `race` (national: same 3 questions on plain table vs hypertable vs aggregates, median of 3, answers compared), `sim` (national, not in production: live load generator + 45 s surge in one spot).
+- Page: live heartbeat banner, alerts, live feed, forecast band, trends (hour/day/week), fix time, missed deadlines, Leaflet time-lapse per city, the race. English + Hindi.
+- Data: `npm run synth -- <tickets> [--clear]` (labelled synthetic, plants a hotspot, compresses, vacuums, reindexes). Refuses in production.
+- Measured locally (arm64 Docker, 1.9 M synthetic events): 90-day group-by 443 ms plain vs 1.6 ms aggregate; storage 2.5 GB plain vs ~95 MB Tiger (synthetic data compresses well; do not quote as a promise). 181 API tests; full-stack e2e 13/13.
+- NOT done: AI-call telemetry from the citizen app into `ai_calls`, `team_positions` feed, Ask-the-City, similar-complaints search, forks, Tiger Cloud cutover.
+
+## Numbers for the presentation (measured 2026-10-09, local Docker, Apple Silicon arm64)
+Measured by the app itself (`GET /api/pulse/race`, `/api/pulse/engine`) on **1,913,230 generated (synthetic) events**, 90 days, 2 cities, complete days only (up to midnight UTC). Same data, same machine, median of 3 runs; all three methods return the same answer (the fix-time aggregate uses a percentile sketch, so it matches within 5%, not exactly). Say "synthetic" on the slide.
+
+| Question | Plain Postgres | Tiger hypertable | Continuous aggregate | Plain vs best |
+|---|---|---|---|---|
+| Reports per day per category, 90 days | 453.4 ms | 80.3 ms | 1.6 ms | 283.4x faster |
+| Ten busiest map cells, 30 days | 71.3 ms | 22.5 ms | 23.5 ms | 3.2x faster |
+| Median hours to fix per day, 90 days | 147.5 ms | 197.9 ms | 2.9 ms | 50.9x faster |
+
+- **Headline:** the dashboard question "reports per day per category over 90 days" takes **453.4 ms on plain Postgres and 1.6 ms from a continuous aggregate (283.4x)**, and the aggregate keeps itself up to date.
+- **Storage:** plain table 1,925 MB vs Tiger Data 95 MB (**20.2x smaller**) on this generated dataset. Generated data compresses unusually well; present it as "on this dataset", not as a promise for real data.
+- **Honest weak spots (do not hide if asked):** for "ten busiest cells" the plain table is only 3.2x slower than the best Tiger path (22.5 ms vs 71.3 ms); for "median hours to fix" the raw hypertable (197.9 ms) is actually *slower* than the plain table (147.5 ms) because compressed chunks must be decompressed, and only the aggregate (2.9 ms) wins. The win comes from continuous aggregates and compression, not from the hypertable alone.
+- **Engine facts (from the database catalog):** TimescaleDB 2.30.2, 4 hypertables, 7 continuous aggregates, 90/92 chunks compressed, 14 background policies.
+- **Live demo:** the simulator writes 8 events/second; the Surge button (45 s of reports in one spot) raised the top alert at 81 reports vs about 14.5 expected (z = 13.2) within one 15-second detector pass. Aggregates can lag up to the 5-minute refresh for late rows; the live feed and counters read the raw table, so they are instant.
+- **Tests:** 181 API tests pass; the full two-app loop (`npm run e2e`) passes 13/13; every synced complaint event lands in `complaint_activity` through the restricted app role.
+- **Earlier smoke test (5.79 M events, before the index cleanup):** 90-day group-by 490 ms raw vs 2 ms daily summary (about 245x); 2.0 GB uncompressed to 245 MB compressed.
+- **Not claimed:** anything about real citizens' data, production traffic, Tiger Cloud (not used yet), or other hardware. Timings vary a few ms per run.
