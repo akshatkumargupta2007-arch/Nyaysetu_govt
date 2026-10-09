@@ -1,0 +1,23 @@
+# The gov web app: static files only, with a strict Content-Security-Policy. ${API_ORIGIN} is filled in from the
+# container's environment when it starts (it is the gov API address the browser may talk to).
+server {
+  listen 80;
+  server_name _;
+  root /usr/share/nginx/html;
+  index index.html;
+  server_tokens off;
+
+  # fingerprinted build files can be cached for a year
+  location /assets/ {
+    include /etc/nginx/conf.d/security-headers.inc;
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+    try_files $uri =404;
+  }
+
+  # everything else is the single-page app; never cache the page itself
+  location / {
+    include /etc/nginx/conf.d/security-headers.inc;
+    add_header Cache-Control "no-store" always;
+    try_files $uri /index.html;
+  }
+}
