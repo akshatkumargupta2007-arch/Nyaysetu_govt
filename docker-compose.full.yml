@@ -14,6 +14,7 @@
 #   The two databases share no network. Neither stack holds the other's database credentials or its JWT secret.
 #
 # Run:   npm run up:all   then   npm run init:all   (first time only)   then   node scripts/e2e.mjs
+# The citizen folder does not have to sit next to this one: set CITIZEN_DIR (see scripts/lib/citizen-dir.mjs).
 name: nyaysetu-full
 
 networks:
@@ -30,7 +31,7 @@ volumes:
 services:
   # ── citizen stack ──────────────────────────────────────────────
   citizen-db:
-    build: ../NyaySetu_Full_v2/infra/db
+    build: ${CITIZEN_DIR:-../NyaySetu_Full_v2}/infra/db
     environment:
       POSTGRES_PASSWORD: dev # local development only
       POSTGRES_DB: nyaysetu
@@ -46,29 +47,31 @@ services:
 
   citizen-api:
     build:
-      context: ../NyaySetu_Full_v2
+      context: ${CITIZEN_DIR:-../NyaySetu_Full_v2}
       dockerfile: apps/api/Dockerfile.dev
-    env_file: ../NyaySetu_Full_v2/.env # keys for the bridge + Gemini etc. (never committed)
+    env_file: ${CITIZEN_DIR:-../NyaySetu_Full_v2}/.env # keys for the bridge + Gemini etc. (never committed)
     environment:
       DATABASE_URL: postgres://postgres:dev@citizen-db:5432/nyaysetu
       PORT: "8080"
       PUBLIC_WEB_ORIGIN: http://localhost:5175
       GOV_SYNC_URL: http://gov-api:8091 # on sync_net
       GOV_BRIDGE_PORT: "8090" # NOT published
+      GEMINI_TIMEOUT_MS: "20000" # local runs: Gemini is sometimes slower than the 6 s production default
     depends_on:
       citizen-db: { condition: service_healthy }
     volumes:
-      - ../NyaySetu_Full_v2/data:/app/data:ro # taxonomy + the Bhilai data the seed reads
+      - ${CITIZEN_DIR:-../NyaySetu_Full_v2}/data:/app/data:ro # taxonomy + the Bhilai data the seed reads
     ports:
       - "8082:8080"
     networks: [public_net, citizen_db_net, sync_net]
 
   citizen-web:
     build:
-      context: ../NyaySetu_Full_v2
+      context: ${CITIZEN_DIR:-../NyaySetu_Full_v2}
       dockerfile: apps/web/Dockerfile.dev
     environment:
       VITE_API_URL: http://localhost:8082 # the browser calls the API through the host
+      VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
     depends_on: [citizen-api]
     ports:
       - "5175:5173"
@@ -80,9 +83,8 @@ services:
     environment:
       POSTGRES_PASSWORD: ${GOV_DB_PASSWORD:-dev}
       POSTGRES_DB: nyaysetu_gov
-      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
-      - gov_dbdata:/var/lib/postgresql/data
+      - gov_dbdata:/home/postgres/pgdata   # the timescaledb-ha image keeps its data here
     networks: [gov_db_net]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -96,7 +98,11 @@ services:
       dockerfile: apps/api/Dockerfile.dev
     env_file: .env # gov keys (never committed)
     environment:
-      DATABASE_URL: postgres://postgres:${GOV_DB_PASSWORD:-dev}@gov-db:5432/nyaysetu_gov
+      # The API connects as the RESTRICTED gov_app role (it cannot edit the audit log), exactly like production.
+      # Only the migration uses the database owner (MIGRATE_DATABASE_URL), run by `npm run init:all`.
+      DATABASE_URL: postgres://gov_app:${GOV_APP_DB_PASSWORD:?run npm run gov:keys first}@gov-db:5432/nyaysetu_gov
+      MIGRATE_DATABASE_URL: postgres://postgres:${GOV_DB_PASSWORD:-dev}@gov-db:5432/nyaysetu_gov
+      TRUST_PROXY: "0" # the browser talks to the API directly here, so there is no proxy to believe
       PORT: "8081"
       SYNC_PORT: "8091" # NOT published
       GOV_WEB_ORIGIN: http://localhost:5174
