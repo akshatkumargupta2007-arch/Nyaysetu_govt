@@ -1,0 +1,93 @@
+[
+  {
+    "code": "SOLID_WASTE",
+    "names": {
+      "hi": "कचरा / सफ़ाई",
+      "en": "Solid waste"
+    }
+  },
+  {
+    "code": "WATER_SUPPLY",
+    "names": {
+      "hi": "पानी की आपूर्ति",
+      "en": "Water supply"
+    }
+  },
+  {
+    "code": "SEWERAGE_DRAINAGE",
+    "names": {
+      "hi": "सीवर / नाली",
+      "en": "Sewerage and drainage"
+    }
+  },
+  {
+    "code": "ROADS_FOOTPATHS",
+    "names": {
+      "hi": "सड़क / फुटपाथ",
+      "en": "Roads and footpaths"
+    }
+  },
+  {
+    "code": "STREETLIGHTS",
+    "names": {
+      "hi": "स्ट्रीट लाइट",
+      "en": "Streetlights"
+    }
+  },
+  {
+    "code": "ELECTRICITY",
+    "names": {
+      "hi": "बिजली",
+      "en": "Electricity"
+    }
+  },
+  {
+    "code": "PUBLIC_HEALTH",
+    "names": {
+      "hi": "जन स्वास्थ्य",
+      "en": "Public health"
+    }
+  },
+  {
+    "code": "TRAFFIC_TRANSPORT",
+    "names": {
+      "hi": "यातायात / परिवहन",
+      "en": "Traffic and transport"
+    }
+  },
+  {
+    "code": "PARKS_RECREATION",
+    "names": {
+      "hi": "पार्क / मनोरंजन",
+      "en": "Parks and recreation"
+    }
+  },
+  {
+    "code": "BUILDING_PLANNING",
+    "names": {
+      "hi": "भवन / नगर नियोजन",
+      "en": "Buildings and planning"
+    }
+  },
+  {
+    "code": "PUBLIC_AMENITIES",
+    "names": {
+      "hi": "सार्वजनिक सुविधाएँ",
+      "en": "Public amenities"
+    }
+  },
+  {
+    "code": "ANIMAL_CONTROL",
+    "names": {
+      "hi": "पशु नियंत्रण",
+      "en": "Animal control"
+    }
+  },
+  {
+    "code": "OTHER",
+    "names": {
+      "hi": "अन्य",
+      "en": "Other"
+    }
+  }
+]

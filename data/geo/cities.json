@@ -1,0 +1,29 @@
+[
+  {
+    "id": "cg.bhilai",
+    "district_id": "CG.DURG",
+    "name": {
+      "hi": "भिलाई",
+      "en": "Bhilai"
+    },
+    "centroid": {
+      "lat": 21.1938,
+      "lng": 81.3509
+    },
+    "verified": false
+  },
+  {
+    "id": "ka.bengaluru",
+    "district_id": "KA.BENGALURU_URBAN",
+    "name": {
+      "hi": "बेंगलुरु",
+      "en": "Bengaluru"
+    },
+    "centroid": {
+      "lat": 12.9716,
+      "lng": 77.5946
+    },
+    "verified": false,
+    "note": "The citizen app has no ka.bengaluru data yet (empty tenant folder), so this city stays at zero complaints."
+  }
+]

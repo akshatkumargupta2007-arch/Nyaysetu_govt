@@ -1,0 +1,24 @@
+[
+  {
+    "id": "CG.DURG",
+    "state_code": "CG",
+    "lgd_code": null,
+    "name": {
+      "hi": "दुर्ग",
+      "en": "Durg"
+    },
+    "verified": false,
+    "note": "VERIFY: Bhilai's current district (Durg) and its LGD code"
+  },
+  {
+    "id": "KA.BENGALURU_URBAN",
+    "state_code": "KA",
+    "lgd_code": null,
+    "name": {
+      "hi": "बेंगलुरु शहरी",
+      "en": "Bengaluru Urban"
+    },
+    "verified": false,
+    "note": "VERIFY: district/LGD code and the post-2025 Greater Bengaluru Authority structure"
+  }
+]
