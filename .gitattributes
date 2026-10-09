@@ -1,0 +1,11 @@
+# One line-ending rule for everyone (the project moves between Windows and Mac).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.mp3 binary
+*.ico binary
+*.woff2 binary
+*.pdf binary
+*.zip binary
