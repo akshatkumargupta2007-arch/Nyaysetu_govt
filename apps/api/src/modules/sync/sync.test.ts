@@ -50,7 +50,7 @@ afterAll(async () => {
   await pool.end();
 });
 beforeEach(async () => {
-  await pool.query("TRUNCATE complaint_events, complaint_reporters, close_requests, complaints, geo_areas, sync_errors, sync_nonces CASCADE");
+  await pool.query("TRUNCATE complaint_activity, complaint_activity_plain, complaint_events, complaint_reporters, close_requests, complaints, geo_areas, sync_errors, sync_nonces CASCADE");
   await seedGeo(pool);
   await pool.query(`INSERT INTO geo_areas (id, city_id, kind, name, geom) VALUES ('cg.bhilai.ward.14','cg.bhilai','ward','{"en":"Ward 14"}',
     ST_GeomFromText('MULTIPOLYGON(((81.31 21.17,81.33 21.17,81.33 21.19,81.31 21.19,81.31 21.17)))',4326))`);
@@ -216,5 +216,73 @@ describe("GA5 close-request status is derived from the event history", () => {
   it("a citizen confirming with no gov request leaves it null", async () => {
     await send({ tickets: [ticket({ state: "CLOSED_CONFIRMED", events: [...base, ev(4, "CITIZEN_CONFIRMED", null), ev(5, "STATE_CHANGED", "CLOSED_CONFIRMED", "WORK_DONE_PENDING_CONFIRMATION")], last_event_seq: 5 })] });
     expect((await row()).close_request_status).toBeNull();
+  });
+});
+
+describe("one bad row must not block everything else", () => {
+  it("a damaged boundary polygon is recorded and skipped; the tickets in the same batch still sync", async () => {
+    const res = await send({
+      reference: { boundaries: [{ id: "cg.bhilai.ward.broken", tenant_id: "cg.bhilai", kind: "ward", name: { en: "Broken" }, approximate: true, geometry: { type: "Banana", coordinates: [] } }] },
+      tickets: [ticket()],
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ applied: 1, acked: [{ ticket_id: TID, seq: 2 }] });
+    expect(await row()).toBeTruthy();
+    const errs = await pool.query("SELECT reason FROM sync_errors");
+    expect(errs.rows.map((r) => r.reason)).toEqual(["reference_failed:boundary:cg.bhilai.ward.broken"]);
+    expect((await pool.query("SELECT count(*)::int AS n FROM geo_areas WHERE id = 'cg.bhilai.ward.broken'")).rows[0].n).toBe(0);
+  });
+
+  it("a good reference item next to a bad one is still applied", async () => {
+    await send({
+      reference: {
+        boundaries: [{ id: "cg.bhilai.ward.broken", tenant_id: "cg.bhilai", kind: "ward", name: { en: "Broken" }, approximate: true, geometry: { type: "Banana", coordinates: [] } }],
+        categories: [{ code: "TEST_CAT", l1: "TEST_L1", names: { en: "Test", hi: "टेस्ट" } }],
+      },
+      tickets: [],
+    });
+    expect((await pool.query("SELECT count(*)::int AS n FROM categories WHERE code = 'TEST_CAT'")).rows[0].n).toBe(1);
+  });
+});
+
+describe("a ticket that keeps being rejected does not fill sync_errors", () => {
+  it("the same rejection arriving again and again is recorded once per hour", async () => {
+    const bad = ticket({ ticket_id: TID2, public_code: "XYZ-26-000001", tenant_id: "zz.nowhere" });
+    for (let i = 0; i < 5; i++) await send({ tickets: [bad] });
+    expect((await pool.query("SELECT count(*)::int AS n FROM sync_errors")).rows[0].n).toBe(1);
+    // an hour later it is recorded again (so a lasting problem stays visible)
+    await pool.query("UPDATE sync_errors SET at = now() - interval '2 hours'");
+    await send({ tickets: [bad] });
+    expect((await pool.query("SELECT count(*)::int AS n FROM sync_errors")).rows[0].n).toBe(2);
+  });
+});
+
+
+describe("time-series layer (Tiger Data)", () => {
+  const acts = async () => (await pool.query("SELECT kind, to_state, city_id, cell, sla_breached FROM complaint_activity ORDER BY seq")).rows;
+
+  it("mirrors events into complaint_activity, once, with REPORT_CREATED stored as REPORT_RECEIVED", async () => {
+    await send({ tickets: [ticket()] });
+    const rows = await acts();
+    expect(rows.map((r) => r.kind)).toEqual(["REPORT_RECEIVED", "STATE_CHANGED"]);
+    expect(rows[0]).toMatchObject({ city_id: "cg.bhilai", cell: "16264:4236", sla_breached: false });
+    await send({ tickets: [ticket({ state: "WORK_DONE_PENDING_CONFIRMATION", last_event_seq: 3,
+      events: [ev(1, "REPORT_CREATED", "SUBMITTED"), ev(2, "STATE_CHANGED", "ASSIGNED", "SUBMITTED"), ev(3, "STATE_CHANGED", "WORK_DONE_PENDING_CONFIRMATION", "ASSIGNED")] })] });
+    expect((await acts()).length).toBe(3);
+  });
+
+  it("aggregates refresh and show the reports", async () => {
+    await send({ tickets: [ticket()] });
+    await pool.query("CALL refresh_continuous_aggregate('activity_hourly', NULL, NULL)");
+    const r = await pool.query("SELECT sum(received)::int AS n FROM activity_hourly");
+    expect(r.rows[0].n).toBe(1);
+  });
+
+  it("has hypertables, compression and the read-only analyst role", async () => {
+    const h = await pool.query("SELECT hypertable_name FROM timescaledb_information.hypertables ORDER BY 1");
+    expect(h.rows.map((x) => x.hypertable_name)).toEqual(expect.arrayContaining(["complaint_activity", "team_positions", "ai_calls", "eval_runs"]));
+    const j = await pool.query("SELECT 1 FROM timescaledb_information.jobs WHERE proc_name = 'policy_compression' AND hypertable_name = 'complaint_activity'");
+    expect(j.rowCount).toBe(1);
+    expect((await pool.query("SELECT 1 FROM pg_roles WHERE rolname = 'analyst_ro'")).rowCount).toBe(1);
   });
 });

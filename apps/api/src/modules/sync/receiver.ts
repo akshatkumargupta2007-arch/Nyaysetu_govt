@@ -49,8 +49,32 @@ export function deriveCloseRequest(events: EventRow[]) {
   return { status, requestedAt, requestedBy, note, respondedAt, reopenCount };
 }
 
+/** Runs one reference item inside a savepoint. A bad item (for example a damaged boundary polygon) is recorded
+ *  and skipped; it must never roll back the whole batch, or one bad row would block every ticket from syncing. */
+async function guarded(db: pg.PoolClient, what: string, fn: () => Promise<void>): Promise<void> {
+  await db.query("SAVEPOINT ref_item");
+  try {
+    await fn();
+    await db.query("RELEASE SAVEPOINT ref_item");
+  } catch (err) {
+    await db.query("ROLLBACK TO SAVEPOINT ref_item");
+    await recordError(db, null, `reference_failed:${what}`, String((err as Error).message).slice(0, 300));
+  }
+}
+
+/** Writes a sync_errors row unless the same error for the same ticket was already written in the last hour
+ *  (the citizen side retries, and an unfixable row must not fill the table every 30 seconds). */
+async function recordError(db: pg.PoolClient, ticketId: string | null, reason: string, detail?: string, extra: Record<string, unknown> = {}) {
+  await db.query(
+    `INSERT INTO sync_errors (ticket_id, reason, payload)
+     SELECT $1::uuid, $2::text, $3::jsonb
+     WHERE NOT EXISTS (SELECT 1 FROM sync_errors WHERE ticket_id IS NOT DISTINCT FROM $1::uuid AND reason = $2::text AND at > now() - interval '1 hour')`,
+    [ticketId, reason, JSON.stringify({ ...extra, detail })],
+  );
+}
+
 async function applyReference(db: pg.PoolClient, ref: NonNullable<Batch["reference"]>) {
-  for (const c of ref.categories ?? []) {
+  for (const c of ref.categories ?? []) await guarded(db, `category:${c.code}`, async () => {
     await db.query(
       `INSERT INTO category_l1 (code, names) VALUES ($1,$2) ON CONFLICT (code) DO NOTHING`,
       [c.l1, JSON.stringify({ en: c.l1, hi: c.l1 })],
@@ -60,22 +84,22 @@ async function applyReference(db: pg.PoolClient, ref: NonNullable<Batch["referen
        ON CONFLICT (code) DO UPDATE SET l1 = EXCLUDED.l1, names = EXCLUDED.names, icon = EXCLUDED.icon`,
       [c.code, c.l1, JSON.stringify(c.names), c.icon ?? null],
     );
-  }
-  for (const a of ref.agencies ?? []) {
+  });
+  for (const a of ref.agencies ?? []) await guarded(db, `agency:${a.id}`, async () => {
     await db.query(
       `INSERT INTO departments (id, agency_name, department_name, kind) VALUES ($1,$2,$3,$4)
        ON CONFLICT (id) DO UPDATE SET agency_name = EXCLUDED.agency_name, department_name = EXCLUDED.department_name, kind = EXCLUDED.kind`,
       [a.id, JSON.stringify(a.name), a.department ? JSON.stringify(a.department) : null, a.kind ?? null],
     );
-  }
-  for (const t of ref.tenants ?? []) {
+  });
+  for (const t of ref.tenants ?? []) await guarded(db, `tenant:${t.id}`, async () => {
     // Gov owns the city -> district -> state mapping; a tenant only refreshes the city's display name.
     if (t.name) await db.query(`UPDATE geo_cities SET name = $2 WHERE id = $1`, [t.id, JSON.stringify(t.name)]);
-  }
-  for (const b of ref.boundaries ?? []) {
-    if (b.kind === "city") continue; // the whole-city outline is not an "area"
+  });
+  for (const b of ref.boundaries ?? []) await guarded(db, `boundary:${b.id}`, async () => {
+    if (b.kind === "city") return; // the whole-city outline is not an "area"
     const city = await db.query(`SELECT 1 FROM geo_cities WHERE id = $1`, [b.tenant_id]);
-    if (!city.rowCount) continue; // unknown city: nothing to attach the area to
+    if (!city.rowCount) return; // unknown city: nothing to attach the area to
     await db.query(
       `INSERT INTO geo_areas (id, city_id, kind, name, approximate, geom)
        VALUES ($1,$2,$3,$4,$5, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($6),4326)))
@@ -83,7 +107,7 @@ async function applyReference(db: pg.PoolClient, ref: NonNullable<Batch["referen
          approximate = EXCLUDED.approximate, geom = EXCLUDED.geom`,
       [b.id, b.tenant_id, b.kind, JSON.stringify(b.name), b.approximate, JSON.stringify(b.geometry)],
     );
-  }
+  });
 }
 
 async function applyTicket(db: pg.PoolClient, t: Ticket): Promise<"applied" | "stale"> {
@@ -138,6 +162,19 @@ async function applyTicket(db: pg.PoolClient, t: Ticket): Promise<"applied" | "s
       [t.ticket_id, e.seq, e.type, e.from_state ?? null, e.to_state ?? null, e.actor_type ?? null, e.payload ? JSON.stringify(e.payload) : null, e.created_at],
     );
   }
+  // Mirror the ticket's events into the time-series table (same formulas as the 0004 backfill).
+  await db.query(
+    `INSERT INTO complaint_activity (at, ticket_id, seq, kind, from_state, to_state, state_code, district_id, city_id, area_id,
+                                     department_id, category_l1, priority_band, cell, age_hours, sla_breached)
+     SELECT e.created_at, e.ticket_id, e.seq, CASE WHEN e.type = 'REPORT_CREATED' THEN 'REPORT_RECEIVED' ELSE e.type END,
+            e.from_state, e.to_state, c.state_code, c.district_id, c.city_id, c.area_id, c.department_id, c.category_l1, c.priority_band,
+            (floor(ST_X(c.geom) / 0.005 + 0.5)::int)::text || ':' || (floor(ST_Y(c.geom) / 0.005 + 0.5)::int)::text,
+            extract(epoch FROM (e.created_at - c.created_at)) / 3600.0,
+            CASE WHEN c.sla_due_at IS NULL THEN NULL ELSE e.created_at > c.sla_due_at END
+     FROM complaint_events e JOIN complaints c USING (ticket_id) WHERE e.ticket_id = $1
+     ON CONFLICT DO NOTHING`,
+    [t.ticket_id],
+  );
   for (const r of t.reporters ?? []) {
     await db.query(
       `INSERT INTO complaint_reporters (ticket_id, report_id, phone_masked, phone_cipher, phone_last4, created_at)
@@ -177,9 +214,7 @@ export async function applyBatch(pool: pg.Pool, batch: Batch): Promise<BatchResu
       } catch (err) {
         await db.query("ROLLBACK TO SAVEPOINT one_ticket");
         const reason = err instanceof Reject ? err.reason : "apply_failed";
-        await db.query(`INSERT INTO sync_errors (ticket_id, reason, payload) VALUES ($1,$2,$3)`, [
-          t.ticket_id, reason, JSON.stringify({ public_code: t.public_code, tenant_id: t.tenant_id, detail: err instanceof Reject ? undefined : String((err as Error).message).slice(0, 300) }),
-        ]);
+        await recordError(db, t.ticket_id, reason, err instanceof Reject ? undefined : String((err as Error).message).slice(0, 300), { public_code: t.public_code, tenant_id: t.tenant_id });
         result.rejected.push({ ticket_id: t.ticket_id, reason });
       }
     }
