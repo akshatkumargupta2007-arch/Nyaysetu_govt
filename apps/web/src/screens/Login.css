@@ -1,0 +1,11 @@
+.sc-login * { box-sizing:border-box }
+.sc-login button, .sc-login input, .sc-login select { font:inherit; color:inherit }
+.sc-login :focus-visible { outline:3px solid #F59E0B; outline-offset:2px }
+.sc-login .btn { height:46px; padding:0 18px; border:1px solid #6B7280; border-radius:6px; background:#fff; color:#111827; font-weight:600; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; text-decoration:none }
+.sc-login .btn.pri { background:#1D4ED8; border-color:#1D4ED8; color:#fff }
+.sc-login .btn.pri:hover { background:#1E40AF }
+.sc-login .btn:disabled { opacity:.5; cursor:not-allowed }
+.sc-login .lang button { height:32px; padding:0 12px; border:0; background:transparent; color:#374151; font-weight:600; cursor:pointer }
+.sc-login .lang button[aria-pressed="true"] { background:#1F2937; color:#fff }
+.sc-login label.f { display:flex; flex-direction:column; gap:6px; font-weight:600 }
+.sc-login label.f input { height:46px; padding:0 12px; border:1px solid #6B7280; border-radius:6px; font-weight:400; font-size:16px }
