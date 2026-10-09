@@ -1,0 +1,20 @@
+# Gov stack only (the citizen stack lives in NyaySetu_Full_v2). Combined run: docker-compose.full.yml (GX1).
+services:
+  gov-db:
+    build: ./infra/db
+    environment:
+      POSTGRES_PASSWORD: ${GOV_DB_PASSWORD:-dev}
+      POSTGRES_DB: nyaysetu_gov
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432" # dev only; remove on any shared host
+    volumes:
+      - govdbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  govdbdata:
