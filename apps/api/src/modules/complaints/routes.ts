@@ -5,6 +5,8 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import type { App } from "../../app.js";
 import { pool } from "../../db/client.js";
 import { requireAuth } from "../auth/guard.js";
+import { proofSummaries } from "../court/summary.js";
+import { citizenRpc } from "../../lib/citizenRpc.js";
 import { appendAudit } from "../../lib/audit.js";
 import { buildWhere, CLOSED_STATES, FilterQuery, isPhoneLast4Query, PRIORITY_RANK_SQL } from "./filters.js";
 import { cooldownState, lastCloseRequestAt } from "./cooldown.js";
@@ -149,7 +151,8 @@ export function registerComplaintRoutes(app: App) {
       const t = await pool.query(`SELECT count(*)::int AS n FROM complaints c WHERE ${where.sql}`, where.params);
       total = t.rows[0].n;
     }
-    return reply.send({ items: page.map(shape), nextCursor, total });
+    const proofs = await proofSummaries(page.map((r) => r.ticket_id));
+    return reply.send({ items: page.map((r) => ({ ...shape(r), proof: proofs.get(r.ticket_id) ?? null })), nextCursor, total });
   });
 
   // ── GB2: counts per group ───────────────────────────────────────────────────
@@ -196,7 +199,12 @@ export function registerComplaintRoutes(app: App) {
     const inCooldown = cool.inCooldown;
     const awaiting = r.status === "WORK_DONE_PENDING_CONFIRMATION";
 
+    const proof = (await proofSummaries([req.params.id])).get(req.params.id) ?? null;
+    // the claim text lives in the citizen app: ask for it, but never let a slow answer hold the page back
+    let claim: string | null = null;
+    if (proof) { try { const v = await citizenRpc<{ contract: { contract: { claim: string } } | null }>("court_view", { ticket_id: req.params.id }, 4000); claim = v.contract?.contract?.claim ?? null; } catch { claim = null; } }
     return reply.send({
+      proof: proof ? { ...proof, claim } : null,
       complaint: {
         ...shape(r),
         originalText: r.original_text,

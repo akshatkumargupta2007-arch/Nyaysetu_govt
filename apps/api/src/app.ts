@@ -16,6 +16,8 @@ import { registerMapRoutes } from "./modules/map/routes.js";
 import { registerAuditRoutes } from "./modules/audit/routes.js";
 import { registerPulseRoutes } from "./modules/pulse/routes.js";
 import { registerLiveRoutes } from "./modules/pulse/live.js";
+import { registerCourtRoutes } from "./modules/court/routes.js";
+import { registerAskRoutes } from "./modules/ask/routes.js";
 
 // Never log these (Bible section 14): phone numbers, sealed phones, auth headers, cookies.
 export const LOG_REDACT_PATHS = [
@@ -60,7 +62,7 @@ export async function buildApp() {
     origin: (origin, cb) => cb(null, !origin || origin === env.GOV_WEB_ORIGIN),
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["content-type", "authorization", "x-csrf-token"],
+    allowedHeaders: ["content-type", "authorization", "x-csrf-token", "x-view-as"],
   });
   await app.register(cookie);
   await app.register(rateLimit, {
@@ -98,6 +100,8 @@ export async function buildApp() {
   registerAuditRoutes(app);
   registerPulseRoutes(app);
   registerLiveRoutes(app);
+  registerCourtRoutes(app);
+  registerAskRoutes(app);
 
   return app;
 }
