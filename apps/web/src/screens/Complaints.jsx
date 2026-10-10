@@ -2,12 +2,12 @@ import React from 'react';
 import { DCLogic, css } from '../lib/dc.js';
 import { TLink } from '../lib/TLink.jsx';
 import { govRoles, currentRoleKey, switchRole } from '../lib/gov.js';
-import { logout, api, qs, download } from '../lib/client.js';
+import { logout, api, qs, download, blobUrl } from '../lib/client.js';
 import './Complaints.css';
 
 /* Behaviour and sample data of this screen. Replace the sample data with calls to your API (see docs/DATA.md). */
 class ComplaintsLogic extends DCLogic {
-state = { items: [], total: 0, ms: 0, bad: false, detail: null, lang: 'en', role: currentRoleKey(), queue: 'open', view: 'split', q: '', status: '', priority: '', verify: '', state: '', district: '', city: '', area: '', dept: '', l1: '', cat: '', from: '', to: '', groupBy: 'none', sort: 'new', more: false, sel: '', tab: 'details', modal: '', ridx: 0, rrow: '', reason: '', shown: {}, revealN: 0, revealErr: '', loadErr: false, note: '', sent: {}, toast: '', copied: false, hashOk: false, zoomTxt: '' };
+state = { items: [], total: 0, ms: 0, bad: false, detail: null, lang: 'en', role: currentRoleKey(), queue: 'open', view: 'split', q: '', status: '', priority: '', verify: '', state: '', district: '', city: '', area: '', dept: '', l1: '', cat: '', from: '', to: '', groupBy: 'none', sort: 'new', more: false, sel: '', tab: 'details', modal: '', ridx: 0, rrow: '', reason: '', shown: {}, revealN: 0, revealErr: '', loadErr: false, note: '', sent: {}, toast: '', copied: false, hashOk: false, zoomTxt: '', photos: null, photoErr: false, big: '' };
 ROLES = govRoles();
 NAVD = [['/complaints', 'Complaints', 'शिकायतें', 'nstcd'], ['/audit', 'Audit log', 'ऑडिट लॉग', 'n']];
 T = {
@@ -58,6 +58,7 @@ async loadList() {
 }
 async loadDetail(row) {
   try { const d = await api('/api/complaints/' + row[21]); this.setState({ detail: d }); } catch (e) { this.setState({ detail: null }); }
+  this.loadPhotos(row[21]);
 }
 CLOSED = ['CLOSED_CONFIRMED', 'CLOSED_UNCONFIRMED'];
 PATH = ['SUBMITTED', 'VERIFIED', 'ASSIGNED', 'DISPATCHED', 'WORK_DONE_PENDING_CONFIRMATION'];
@@ -105,7 +106,18 @@ else { rows.forEach((r) => { const c = this.ll(r[19], r[20]); const col = r[2] =
 this.setState({ zoomTxt: z <= 11 ? 'city' : z <= 14 ? 'heat' : 'points' });
 } catch (e) {}
 }
-openRow(code) { this.setState({ sel: code, tab: 'details', detail: null }); const r = this.D.find((x) => x[0] === code); if (r) this.loadDetail(r); }
+openRow(code) { this.dropPhotos(); this.setState({ sel: code, tab: 'details', detail: null, photos: null, photoErr: false, big: '' }); const r = this.D.find((x) => x[0] === code); if (r) this.loadDetail(r); }
+dropPhotos() { (this._purls || []).forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} }); this._purls = []; }
+// The photos the citizen attached. The portal keeps no copy: each one is fetched (signed in) when the details open.
+async loadPhotos(id) {
+  try {
+    const r = await api('/api/complaints/' + id + '/photos'); const items = [];
+    for (const p of r.items) { let url = ''; if (p.available) { try { url = await blobUrl('/api/complaints/' + id + '/photos/' + p.id); } catch (e) {} } if (url) (this._purls = this._purls || []).push(url); items.push({ id: p.id, kind: p.kind, at: p.at, url, check: p.check || null }); }
+    const cur = this.D.find((x) => x[0] === this.state.sel);
+    if (!cur || cur[21] !== id) return; // the official has moved on to another complaint
+    this.setState({ photos: items, photoErr: false });
+  } catch (e) { const cur = this.D.find((x) => x[0] === this.state.sel); if (cur && cur[21] === id) this.setState({ photos: [], photoErr: true }); }
+}
 renderVals() {
 const s = this.state; const l = s.lang; const t = this.T[l]; const L = l === 'hi' ? 1 : 0; const ro = this.ROLES[s.role] || Object.values(this.ROLES)[0]; const pr_ = (p) => pr[p]; const rc = ro[5];
 const nav = this.NAVD.filter((n) => n[3].indexOf(rc) >= 0).map((n) => ({ href: n[0], label: n[1 + L], cls: n[0] === '/complaints' ? 'on' : '', cur: n[0] === '/complaints' ? 'page' : 'false' }));
@@ -135,6 +147,9 @@ d = { code: r[0], statusText: st[status], statusStyle: this.statusStyle(status),
 summary: comp ? comp.summary : '…', cat: r[4], l1: r[5], dept: r[8], where: loc ? [nameOf(loc.state && loc.state.name), nameOf(loc.district && loc.district.name), nameOf(loc.city && loc.city.name), nameOf(loc.area && loc.area.name)].filter(Boolean).join(' › ') : '', coords: Number(r[19]).toFixed(5) + ' N, ' + Number(r[20]).toFixed(5) + ' E', sla: comp ? fmtT(comp.slaDueAt) + (comp.slaBreached && !closed ? (L ? ' (समय-सीमा पार)' : ' (overdue)') : '') : '', received: comp ? fmtT(comp.createdAt) : '', age: r[9],
 langText: comp ? (comp.originalLang === 'hi' ? 'हिन्दी' : comp.originalLang === 'en' ? 'English' : String(comp.originalLang || '').toUpperCase()) : '', langCode: comp ? comp.originalLang : 'en', original: comp ? (comp.originalText || '') : '', timeline, reporters, verifyText: vf[vkey] || vf.none,
 blocked: !canAsk, blockedText: blockedReason,
+phTitle: L ? 'नागरिक की भेजी फ़ोटो' : 'Photos from the citizen', phLoading: s.photos === null, phErr: s.photos !== null && s.photoErr, phNone: s.photos !== null && !s.photoErr && s.photos.length === 0, phHas: !!s.photos && s.photos.length > 0,
+phLoadingText: L ? 'फ़ोटो लोड हो रही हैं…' : 'Loading photos…', phErrText: L ? 'फ़ोटो अभी नहीं दिख सकीं। दोबारा खोलकर देखें।' : 'The photos could not be loaded right now. Open this complaint again to retry.', phNoneText: L ? 'नागरिक ने कोई फ़ोटो नहीं जोड़ी।' : 'The citizen did not attach a photo.',
+phItems: (s.photos || []).map((p) => ({ key: p.id, url: p.url, has: !!p.url, none: !p.url, label: p.kind === 'reopen' ? (L ? 'दोबारा खोलते समय' : 'Added when reopened') : (L ? 'शिकायत के साथ' : 'With the complaint'), when: fmtT(p.at), naText: L ? 'फ़ोटो सहेजी नहीं गई थी (शिकायत फ़ोटो सहेजने की सुविधा से पहले की है)।' : 'The photo was not saved (this complaint was filed before photos were being saved).', ck: p.check ? ({ real_photo: { t: L ? 'बुनियादी जाँच पास (असली होने का प्रमाण नहीं)' : 'Basic checks passed (not proof it is real)', s: 'background:#E5E7EB;color:#1F2937;' }, unclear: { t: L ? 'जाँच: असली होना पक्का नहीं' : 'Check: could not confirm it is real', s: 'background:#FEF3C7;color:#78350F;' }, unchecked: { t: L ? 'AI जाँच नहीं हुई' : 'AI check was not run', s: 'background:#E5E7EB;color:#1F2937;' } }[p.check.verdict] || { t: L ? 'जाँच: असली फ़ोटो नहीं लगती' : 'Check: may not be a real photo', s: 'background:#FEE2E2;color:#7F1D1D;' }) : null, ckTitle: p.check && p.check.reason ? p.check.reason + (p.check.confidence != null ? ' (' + Math.round(p.check.confidence * 100) + '%)' : '') : '', open: () => this.setState({ big: p.url }) })), big: s.big, closeBig: () => this.setState({ big: '' }),
 history: cr && cr.history && cr.history.length ? cr.history.map((h) => fmtT(h.at) + ' · ' + h.official).join('; ') : (L ? 'अभी तक कोई नहीं' : 'None yet') };
 }
 const noteCount = s.note.length; const mapBoxW = s.view === 'map' ? 'flex: 1 1 0;' : 'flex: 0 0 560px;';
@@ -152,7 +167,7 @@ doExport: async () => { try { await download('/api/export.csv' + qs({ q: s.q || 
 vSplit: s.view === 'split', vTable: s.view === 'table', vMap: s.view === 'map', setSplit: () => this.setState({ view: 'split' }), setTable: () => this.setState({ view: 'table' }), setMap: () => this.setState({ view: 'map' }),
 showTable: s.view !== 'map', showMap: s.view !== 'table', mapBox: 'background:#fff;border:1px solid #D1D5DB;border-radius:8px;overflow:hidden;' + mapBoxW,
 zoomLevelText: s.zoomTxt === 'city' ? (L ? 'स्तर: शहर' : 'Level: cities') : s.zoomTxt === 'points' ? (L ? 'स्तर: हर शिकायत' : 'Level: each complaint') : (L ? 'स्तर: हीट और क्षेत्र' : 'Level: heat and areas'),
-drawer: !!r, d, closeDrawer: () => this.setState({ sel: '' }), tabDetails: true,
+drawer: !!r, d, closeDrawer: () => { this.dropPhotos(); this.setState({ sel: '', photos: null, photoErr: false, big: '' }); }, tabDetails: true,
 copyLabel: s.copied ? (L ? 'कॉपी हुआ' : 'Copied') : (L ? 'ID कॉपी करें' : 'Copy ID'), copy: () => { try { navigator.clipboard.writeText(s.sel); } catch (e) {} this.setState({ copied: true }); setTimeout(() => this.setState({ copied: false }), 1500); },
 revealCount: s.revealN,
 revealErr: s.revealErr, bad: s.bad, ms: s.ms, modalPhone: s.modal === 'phone', modalAsk: s.modal === 'ask', closeModal: () => this.setState({ modal: '' }), reason: s.reason, onReason: (e) => this.setState({ reason: e.target.value }), reasonBad: s.reason.trim().length < 3,
@@ -777,6 +792,50 @@ ComplaintsLogic.prototype.view = function view(__v) {
                   {d.original}
                 </div>
               </div>
+              <div className="sec" id="complaint-photos">
+                <h3>
+                  {d.phTitle}
+                </h3>
+                {!!(d.phLoading) && (<div style={{ color: "#4B5563" }}>{d.phLoadingText}</div>)}
+                {!!(d.phErr) && (<div role="alert" style={{ color: "#78350F" }}>{d.phErrText}</div>)}
+                {!!(d.phNone) && (<div style={{ color: "#4B5563" }}>{d.phNoneText}</div>)}
+                {!!(d.phHas) && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+                    {d.phItems.map((p) => (
+                      <figure key={p.key} style={{ margin: "0", width: "180px" }}>
+                        {!!(p.has) && (
+                          <button type="button" onClick={p.open} aria-label={p.label} style={{ padding: "0", border: "1px solid #D1D5DB", borderRadius: "6px", background: "#F9FAFB", cursor: "zoom-in", display: "block", width: "180px", height: "135px", overflow: "hidden" }}>
+                            <img src={p.url} alt={p.label} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                          </button>
+                        )}
+                        {!!(p.none) && (
+                          <div style={{ width: "180px", height: "135px", border: "1px dashed #9CA3AF", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "8px", color: "#4B5563", fontSize: "13px", boxSizing: "border-box" }}>
+                            {p.naText}
+                          </div>
+                        )}
+                        <figcaption style={{ fontSize: "12.5px", color: "#374151", marginTop: "4px" }}>
+                          {!!(p.ck) && (
+                            <span className="chip" title={p.ckTitle} style={{ ...css(p.ck.s), display: "inline-block", marginBottom: "3px" }}>
+                              {p.ck.t}
+                            </span>
+                          )}
+                          <span style={{ display: "block" }}>
+                          {p.label}
+                          </span>
+                          <span style={{ display: "block", color: "#6B7280" }}>
+                            {p.when}
+                          </span>
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {!!(d.big) && (
+                <div role="dialog" aria-modal="true" aria-label={d.phTitle} onClick={d.closeBig} style={{ position: "fixed", inset: "0", background: "rgba(17,24,39,0.85)", zIndex: "50", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", cursor: "zoom-out" }}>
+                  <img src={d.big} alt={d.phTitle} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: "6px", background: "#fff" }} />
+                </div>
+              )}
               <div className="sec">
                 <h3>
                   {t.d_reporters}
