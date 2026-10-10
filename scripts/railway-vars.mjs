@@ -25,7 +25,6 @@ W('1-GOV-DB.env', 'Railway service "gov-db" (Variables tab, Raw Editor)', [
 ]);
 W('2-GOV-API.env', 'Railway service "gov-api" (Variables tab, Raw Editor). Replace ONLY the line that says CHANGE-ME.', [
   'RAILWAY_DOCKERFILE_PATH=apps/api/Dockerfile', 'NODE_ENV=production', 'PORT=8081', 'SYNC_PORT=8091', 'TRUST_PROXY=2',
-  '# Demo only: turns on the Closure Court demo buttons and the Civic Pulse load simulator. Delete this line for real use.', 'PULSE_SIM=1',
   `MIGRATE_DATABASE_URL=postgres://postgres:${dbPass}@\${{gov-db.RAILWAY_PRIVATE_DOMAIN}}:5432/nyaysetu_gov`,
   `GOV_APP_DB_PASSWORD=${appPass}`,
   `DATABASE_URL=postgres://gov_app:${appPass}@\${{gov-db.RAILWAY_PRIVATE_DOMAIN}}:5432/nyaysetu_gov`,
