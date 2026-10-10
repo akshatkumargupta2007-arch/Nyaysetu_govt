@@ -10,6 +10,7 @@ import { healthCheck } from "./db/client.js";
 import { registerAuthRoutes } from "./modules/auth/routes.js";
 import { registerComplaintRoutes } from "./modules/complaints/routes.js";
 import { registerRevealRoute } from "./modules/complaints/reveal.js";
+import { registerPhotoRoutes } from "./modules/complaints/photos.js";
 import { registerStatsRoutes } from "./modules/stats/routes.js";
 import { registerCloseRequestRoute } from "./modules/complaints/closeRequest.js";
 import { registerMapRoutes } from "./modules/map/routes.js";
@@ -90,6 +91,7 @@ export async function buildApp() {
   registerAuthRoutes(app);
   registerComplaintRoutes(app);
   registerRevealRoute(app);
+  registerPhotoRoutes(app);
   registerStatsRoutes(app);
   registerCloseRequestRoute(app);
   registerMapRoutes(app);
