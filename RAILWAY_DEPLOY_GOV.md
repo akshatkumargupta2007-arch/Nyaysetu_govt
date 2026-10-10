@@ -89,7 +89,7 @@ Do **not** use Railway's ready-made Postgres. We need the Tiger Data / Timescale
 
 ## Part 6. Open it
 
-Open the `gov-web` address. You should see the sign-in page. Sign in with `GOV_ADMIN_EMAIL` and `GOV_ADMIN_PASSWORD`. You land on Civic Pulse (it is empty until complaints arrive, that is normal).
+Open the `gov-web` address. You should see the sign-in page. Sign in with `GOV_ADMIN_EMAIL` and `GOV_ADMIN_PASSWORD`. You land on the Complaints page (it is empty until complaints arrive, that is normal).
 
 ## Part 7. How the two servers talk (citizen app <-> gov portal)
 
@@ -130,14 +130,14 @@ The variable files already contain these as `${{gov-api.RAILWAY_PRIVATE_DOMAIN}}
 ### Prove the connection works (3 checks)
 
 1. **Citizen -> gov:** on the citizen website file a complaint (voice or text). Within a minute it appears in the gov portal under **Complaints**.
-2. **Gov -> citizen:** in the gov portal, sign in as admin and open **System health**. It shows the AI status. If it loads, the gov API can reach the citizen API.
-3. **Closure Court:** in the gov portal open **Closure Court** (`/queue`), open the complaint, and the page loads without "citizen app unavailable".
+2. **Gov -> citizen:** in the gov portal, sign in as admin, open a complaint whose status is "Work done" and press **Request closure**. If it says the request was sent, the gov API can reach the citizen API.
+3. **Citizen sees it live:** in the citizen app, **My problems** shows the **Verify resolution** banner within a few seconds.
 
 | What you see | What it means | Fix |
 |---|---|---|
 | Complaint never appears in gov | link 1 broken | citizen log: is `gov sync: on`? `GOV_SYNC_URL` correct? port 8091? |
 | Gov log: `signature` / 401 | key pair mismatch | re-paste the 3 key lines in file 4 on citizen-api AND the 3 key lines in file 2 on gov-api from the SAME folder |
-| System health: "could not load" | link 2 broken | `CITIZEN_INTERNAL_URL` on gov-api; citizen log `gov bridge listening on :8090` |
+| Request closure fails with "citizen app unavailable" | link 2 broken | `CITIZEN_INTERNAL_URL` on gov-api; citizen log `gov bridge listening on :8090` |
 | `ENOTFOUND ...railway.internal` | wrong service name or different Railway project | rename the service to the exact name; keep both in one project |
 | `ECONNREFUSED` on the private address | the app is only listening on IPv4 | message Arush (Railway's older projects use IPv6 only) |
 
@@ -164,11 +164,9 @@ The variable files already contain these as `${{gov-api.RAILWAY_PRIVATE_DOMAIN}}
 - Do not rename services after the variables are pasted.
 
 ## Known limits (honest)
-- Civic Pulse starts empty. Real complaints fill it in. The big demo data set (millions of rows) is loaded separately by Arush; ask him before the demo.
-- `PULSE_SIM=1` (in file 2) switches on the demo buttons. Remove that line for real users.
 - Only one administrator exists. Other officials (state, district, city, department) are not created automatically; the administrator uses the "View as" selector to see their screens.
 - This guide was written and the pieces tested on a laptop (database image, API, website with the API forwarding). It has not yet been run on Railway itself; the Railway-specific lines (private addresses, `[fd12::10]`, the volume path) follow Railway's documented behaviour. If one of them fails, send the log lines to Arush.
-- Gemini keys live on the **citizen** side only. The gov API never calls Gemini directly; it asks the citizen API.
+- Gemini keys live on the **citizen** side only. The gov API does not call Gemini.
 
 ## Cheat sheet (service names and what they need)
 
