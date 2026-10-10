@@ -92,3 +92,10 @@ Measured by the app itself (`GET /api/pulse/race`, `/api/pulse/engine`) on **1,9
 - Alert detail, Ask the City and Closure Court (demo controls, replay of the complaint's own ledger) tested in the browser.
 - The alert "set back to open" route is `/restore` (a route named `reopen` trips the "gov cannot reopen a ticket" guard test).
 - Tests: gov 200 passing, citizen 232 passing.
+
+## Portal trimmed to Complaints, Audit log and Legend (2026-10-10)
+- **Removed pages:** Civic Pulse, Alert detail, Closure Court, Review queue, Scorecard, Ask the City, Benchmark and System health. `/` now sends the person to `/complaints`, so sign-in lands there as before.
+- **Removed API routes:** everything under `/api/pulse/*`, `/api/court/*`, `/api/ask*` and `/api/health/ai`, the alert detector and simulator jobs, and the helper that asked the citizen app for Closure Court data. The complaints list and detail no longer carry a `proof` field, and the drawer has no Proof tab.
+- **Kept, unchanged:** login and sessions, role scoping and "View as", the complaints table, KPIs, map, filters and CSV export, phone reveal, close request, the audit log, and the signed two-way link with the citizen app (sync receiver on :8091, write-back door on :8090). The sync still mirrors every ticket event into `complaint_activity`, so the Tiger Data tables and migrations (`0004` to `0007`) are still filled; only the screens that read them were removed.
+- **Legend** now explains only what is left: complaint status, priority, citizen verification, data labels and the who-can-see-which-page table.
+- Tests: gov 166 passing (13 files; the removed modules took 34 tests with them). `npm run e2e` against the Docker stack still passes the full loop.
