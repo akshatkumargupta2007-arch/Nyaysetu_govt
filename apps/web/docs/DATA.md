@@ -10,6 +10,7 @@ All endpoints need sign-in and are limited to the person's own area on the serve
 | Complaints: export | CSV that respects filters and scope | `GET /api/export.csv` |
 | Complaints: map | cities, areas, points | `GET /api/geo/india`, `/api/map/states`, `/cities`, `/areas`, `/points` |
 | Complaints: drawer | summary, original text and language, location, SLA due, merged count, reporters (masked), escalation, timeline | `GET /api/complaints/:id` |
+| Complaints: citizen photos | which photos the citizen attached (kind, time, whether they can be shown), then each picture. The portal keeps no copy; every picture is asked for from the citizen app over the signed internal door, and each one opened is written to the audit log (`PHOTO_VIEW`) | `GET /api/complaints/:id/photos`, `GET /api/complaints/:id/photos/:mediaId` |
 | Complaints: reveal phone | reason (3+ characters); logged before shown; 30 an hour | `POST /api/complaints/:id/reveal-phone` |
 | Complaints: request verification | optional note up to 300 characters; once per 24 h | close-request endpoint |
 | Audit log | who revealed which number and why; every sensitive action; integrity check | `GET /api/audit/reveals`, `/api/audit/log`, `/api/audit/verify` |
