@@ -14,10 +14,6 @@ import { registerStatsRoutes } from "./modules/stats/routes.js";
 import { registerCloseRequestRoute } from "./modules/complaints/closeRequest.js";
 import { registerMapRoutes } from "./modules/map/routes.js";
 import { registerAuditRoutes } from "./modules/audit/routes.js";
-import { registerPulseRoutes } from "./modules/pulse/routes.js";
-import { registerLiveRoutes } from "./modules/pulse/live.js";
-import { registerCourtRoutes } from "./modules/court/routes.js";
-import { registerAskRoutes } from "./modules/ask/routes.js";
 
 // Never log these (Bible section 14): phone numbers, sealed phones, auth headers, cookies.
 export const LOG_REDACT_PATHS = [
@@ -98,10 +94,6 @@ export async function buildApp() {
   registerCloseRequestRoute(app);
   registerMapRoutes(app);
   registerAuditRoutes(app);
-  registerPulseRoutes(app);
-  registerLiveRoutes(app);
-  registerCourtRoutes(app);
-  registerAskRoutes(app);
 
   return app;
 }
