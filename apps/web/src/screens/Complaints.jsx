@@ -9,15 +9,15 @@ import './Complaints.css';
 class ComplaintsLogic extends DCLogic {
 state = { items: [], total: 0, ms: 0, bad: false, detail: null, lang: 'en', role: currentRoleKey(), queue: 'open', view: 'split', q: '', status: '', priority: '', verify: '', state: '', district: '', city: '', area: '', dept: '', l1: '', cat: '', from: '', to: '', groupBy: 'none', sort: 'new', more: false, sel: '', tab: 'details', modal: '', ridx: 0, rrow: '', reason: '', shown: {}, revealN: 0, revealErr: '', loadErr: false, note: '', sent: {}, toast: '', copied: false, hashOk: false, zoomTxt: '' };
 ROLES = govRoles();
-NAVD = [['/', 'Civic Pulse', 'सिविक पल्स', 'nstcd'], ['/complaints', 'Complaints', 'शिकायतें', 'nstcd'], ['/queue', 'Closure Court', 'क्लोज़र कोर्ट', 'nstcd'], ['/ask', 'Ask the City', 'शहर से पूछें', 'nstcd'], ['/scorecard', 'Scorecard', 'स्कोरकार्ड', 'nstc'], ['/benchmark', 'Benchmark', 'बेंचमार्क', 'n'], ['/health', 'System health', 'सिस्टम स्वास्थ्य', 'n'], ['/audit', 'Audit log', 'ऑडिट लॉग', 'n']];
+NAVD = [['/complaints', 'Complaints', 'शिकायतें', 'nstcd'], ['/audit', 'Audit log', 'ऑडिट लॉग', 'n']];
 T = {
 en: { brand: 'NyaySetu Gov', generated: 'Generated data', legend: 'Legend', view_as: 'View as', signout: 'Sign out', proto: 'Prototype. Not an official government website. Part of the demo data is generated and labelled as such.',
 nav_complaints: 'Complaints', scoped: 'Scoped to your area', view: 'View', v_split: 'Table and map', v_table: 'Table only', v_map: 'Map', gen_tag: 'Generated',
 f_search: 'Search by ID, last 4 digits of mobile, or words', f_status: 'Status', f_priority: 'Priority', f_verify: 'Citizen verification', f_group: 'Group by', f_state: 'State', f_district: 'District', f_city: 'City', f_area: 'Area', f_dept: 'Department', f_catgroup: 'Category group', f_cat: 'Category', f_from: 'From date', f_to: 'To date', all: 'All', more: 'More filters', less: 'Fewer filters', f_clear: 'Clear filters', export: 'Export CSV', exported: 'Downloaded nyaysetu-complaints.csv (respects your filters and area). Mobile numbers are hidden in the file.',
 c_id: 'Complaint ID', c_mobile: 'Mobile number', c_cat: 'Category', c_area: 'Area', c_dept: 'Department', c_status: 'Status', c_priority: 'Priority', c_age: 'Age', c_verify: 'Citizen verification', show: 'Show number', hide: 'Hide', overdue: 'Overdue', empty: 'No complaints match these filters.', sort: 'Sort', s_new: 'Newest first', s_old: 'Oldest first', s_pri: 'Highest priority', paging: 'Loads 50 more when you reach the end', src: 'Source', count: 'complaints',
 map_levels: 'Zoomed out: city circles with counts. Zoom in: heat colour with area counts. Zoom closer: each complaint. (State shading is shown in the national view.)', approx: 'Locations are approximate (±25 m).', map_note: 'generated points are labelled',
-d_tabs: 'Drawer sections', d_details: 'Details', d_proof: 'Proof', d_summary: 'Summary', d_location: 'Location', d_sla: 'Deadline (SLA)', d_received: 'Received', d_words: 'The citizen’s own words', d_reporters: 'Reporters (masked)', d_timeline: 'Timeline', call: 'Call', reveal_note: 'Every view is recorded with your reason. Numbers shown this hour:', d_contract: 'Proof contract', source: 'Source', hash: 'Hash', verify_hash: 'Verify hash', hash_ok: 'Matches the ledger', d_latest: 'Latest verdict', d_proofs: 'proof submissions', open_court: 'Open Closure Court', no_proof: 'No proof contract yet for this complaint.', not_close: 'This does not close the complaint. The citizen decides.',
-close_title: 'Ask the citizen to verify', latest_verdict: 'Latest proof verdict', warn: 'The latest proof says the evidence is not enough.', can_proceed: 'You can still ask the citizen, who decides.', close_help: 'Use this once field work is done. The citizen is asked in their app whether the problem is really fixed. Only the citizen can close the complaint.', close_button: 'Request closure', close_note: 'Note for the citizen (optional)', close_send: 'Send request', close_history: 'Earlier requests', close: 'Close', cancel: 'Cancel',
+d_tabs: 'Drawer sections', d_details: 'Details', d_summary: 'Summary', d_location: 'Location', d_sla: 'Deadline (SLA)', d_received: 'Received', d_words: 'The citizen’s own words', d_reporters: 'Reporters (masked)', d_timeline: 'Timeline', call: 'Call', reveal_note: 'Every view is recorded with your reason. Numbers shown this hour:', 
+close_title: 'Ask the citizen to verify', close_help: 'Use this once field work is done. The citizen is asked in their app whether the problem is really fixed. Only the citizen can close the complaint.', close_button: 'Request closure', close_note: 'Note for the citizen (optional)', close_send: 'Send request', close_history: 'Earlier requests', close: 'Close', cancel: 'Cancel',
 m_title: 'Show mobile number', m_warn: 'Showing this number will be recorded against your name. You may show at most 30 numbers an hour.', m_reason: 'Reason (required, at least 3 characters)', sent_ok: 'Request sent. The citizen will see it in their app.',
 k_received: 'Received', k_open: 'Open', k_await: 'Awaiting citizen', k_resolved: 'Resolved', k_sla: 'SLA breached', k_reop: 'Reopened', k_fix: 'Confirmed fix', k_hours: 'Avg. resolution',
 h_received: 'Every complaint matching the filters', h_open: 'Not yet closed', h_await: 'Work done; citizen has not confirmed', h_resolved: 'Closed after work', h_sla: 'Share past their deadline', h_reop: 'Of finished, citizen reopened', h_fix: 'Of finished, citizen confirmed', h_hours: 'Received to work done',
@@ -27,8 +27,8 @@ nav_complaints: 'शिकायतें', scoped: 'आपके क्षे�
 f_search: 'ID, मोबाइल के अंतिम 4 अंक, या शब्द खोजें', f_status: 'स्थिति', f_priority: 'प्राथमिकता', f_verify: 'नागरिक सत्यापन', f_group: 'समूह बनाएँ', f_state: 'राज्य', f_district: 'ज़िला', f_city: 'शहर', f_area: 'क्षेत्र', f_dept: 'विभाग', f_catgroup: 'श्रेणी समूह', f_cat: 'श्रेणी', f_from: 'से तारीख', f_to: 'तक तारीख', all: 'सभी', more: 'और फ़िल्टर', less: 'कम फ़िल्टर', f_clear: 'फ़िल्टर हटाएँ', export: 'CSV निर्यात', exported: 'nyaysetu-complaints.csv डाउनलोड हुई (आपके फ़िल्टर और क्षेत्र के अनुसार)। फ़ाइल में मोबाइल नंबर छिपे हैं।',
 c_id: 'शिकायत संख्या', c_mobile: 'मोबाइल नंबर', c_cat: 'श्रेणी', c_area: 'क्षेत्र', c_dept: 'विभाग', c_status: 'स्थिति', c_priority: 'प्राथमिकता', c_age: 'अवधि', c_verify: 'नागरिक सत्यापन', show: 'नंबर दिखाएँ', hide: 'छिपाएँ', overdue: 'समय-सीमा पार', empty: 'इन फ़िल्टर से कोई शिकायत नहीं मिली।', sort: 'क्रम', s_new: 'सबसे नई पहले', s_old: 'सबसे पुरानी पहले', s_pri: 'सर्वोच्च प्राथमिकता', paging: 'अंत तक पहुँचने पर 50 और लोड होंगी', src: 'स्रोत', count: 'शिकायतें',
 map_levels: 'दूर से: शहर के घेरे और गिनती। पास आने पर: हीट रंग और क्षेत्र की गिनती। और पास: हर शिकायत। (राज्यों का रंग राष्ट्रीय दृश्य में दिखता है।)', approx: 'स्थान लगभग हैं (±25 मी)।', map_note: 'जनित बिंदुओं पर लेबल है',
-d_tabs: 'ड्रॉअर के भाग', d_details: 'विवरण', d_proof: 'प्रमाण', d_summary: 'सारांश', d_location: 'स्थान', d_sla: 'समय-सीमा (SLA)', d_received: 'प्राप्त', d_words: 'नागरिक के अपने शब्द', d_reporters: 'शिकायतकर्ता (छिपे हुए)', d_timeline: 'घटनाक्रम', call: 'कॉल करें', reveal_note: 'हर बार देखना आपके कारण के साथ दर्ज होता है। इस घंटे देखे गए नंबर:', d_contract: 'प्रमाण अनुबंध', source: 'स्रोत', hash: 'हैश', verify_hash: 'हैश जाँचें', hash_ok: 'लेजर से मेल खाता है', d_latest: 'ताज़ा निर्णय', d_proofs: 'प्रमाण प्रस्तुतियाँ', open_court: 'क्लोज़र कोर्ट खोलें', no_proof: 'इस शिकायत का अभी कोई प्रमाण अनुबंध नहीं।', not_close: 'इससे शिकायत बंद नहीं होती। नागरिक तय करता है।',
-close_title: 'नागरिक से पुष्टि का अनुरोध करें', latest_verdict: 'ताज़ा प्रमाण निर्णय', warn: 'ताज़ा प्रमाण कहता है कि सबूत काफ़ी नहीं है।', can_proceed: 'आप फिर भी नागरिक से पूछ सकते हैं, वही तय करता है।', close_help: 'फ़ील्ड का काम पूरा होने पर इसे इस्तेमाल करें। नागरिक से उनके ऐप में पूछा जाता है कि समस्या सच में ठीक हुई या नहीं। शिकायत केवल नागरिक ही बंद कर सकता है।', close_button: 'समापन का अनुरोध करें', close_note: 'नागरिक के लिए संदेश (वैकल्पिक)', close_send: 'अनुरोध भेजें', close_history: 'पहले भेजे गए अनुरोध', close: 'बंद करें', cancel: 'रद्द करें',
+d_tabs: 'ड्रॉअर के भाग', d_details: 'विवरण', d_summary: 'सारांश', d_location: 'स्थान', d_sla: 'समय-सीमा (SLA)', d_received: 'प्राप्त', d_words: 'नागरिक के अपने शब्द', d_reporters: 'शिकायतकर्ता (छिपे हुए)', d_timeline: 'घटनाक्रम', call: 'कॉल करें', reveal_note: 'हर बार देखना आपके कारण के साथ दर्ज होता है। इस घंटे देखे गए नंबर:', 
+close_title: 'नागरिक से पुष्टि का अनुरोध करें', close_help: 'फ़ील्ड का काम पूरा होने पर इसे इस्तेमाल करें। नागरिक से उनके ऐप में पूछा जाता है कि समस्या सच में ठीक हुई या नहीं। शिकायत केवल नागरिक ही बंद कर सकता है।', close_button: 'समापन का अनुरोध करें', close_note: 'नागरिक के लिए संदेश (वैकल्पिक)', close_send: 'अनुरोध भेजें', close_history: 'पहले भेजे गए अनुरोध', close: 'बंद करें', cancel: 'रद्द करें',
 m_title: 'मोबाइल नंबर दिखाएँ', m_warn: 'यह नंबर देखना आपके नाम से दर्ज किया जाएगा। एक घंटे में अधिकतम 30 नंबर देख सकते हैं।', m_reason: 'कारण (ज़रूरी, कम से कम 3 अक्षर)', sent_ok: 'अनुरोध भेज दिया गया। नागरिक इसे अपने ऐप में देखेंगे।',
 k_received: 'प्राप्त', k_open: 'खुली', k_await: 'नागरिक की पुष्टि बाकी', k_resolved: 'निपटाई गई', k_sla: 'समय-सीमा पार', k_reop: 'दोबारा खुली', k_fix: 'पुष्टि हुए समाधान', k_hours: 'औसत निपटान',
 h_received: 'फ़िल्टर से मेल खाती सभी', h_open: 'अभी बंद नहीं', h_await: 'काम पूरा; नागरिक ने पुष्टि नहीं की', h_resolved: 'काम के बाद बंद', h_sla: 'समय-सीमा पार का हिस्सा', h_reop: 'पूरी में से नागरिक ने दोबारा खोली', h_fix: 'पूरी में से नागरिक ने पुष्टि की', h_hours: 'प्राप्ति से कार्य पूर्ण तक',
@@ -48,9 +48,8 @@ get D() {
   return items.map((c) => {
     const open = ['CLOSED_CONFIRMED', 'CLOSED_UNCONFIRMED', 'REJECTED_NOT_CIVIC'].indexOf(c.status) < 0;
     const hours = c.resolvedAt ? Math.round((new Date(c.resolvedAt) - new Date(c.createdAt)) / 3600000) : null;
-    const pr = c.proof || {};
     return [c.code, c.status, c.priority, !!c.slaBreached && open, nm(c.category.names), nm(c.category.l1Names), nm(c.location.area && c.location.area.name) || '–', nm(c.location.city && c.location.city.name), nm(c.department && c.department.agency), age(c.createdAt),
-      (c.closeRequest && c.closeRequest.status) || 'none', String(c.phoneMasked || '').replace(/X/g, '•'), c.reopenCount || 0, c.reportCount || 1, pr.verdict || '', pr.submissions || 0, pr.contractSource || '', false, hours, c.location.lat, c.location.lng, c.id];
+      (c.closeRequest && c.closeRequest.status) || 'none', String(c.phoneMasked || '').replace(/X/g, '•'), c.reopenCount || 0, c.reportCount || 1, '', 0, '', false, hours, c.location.lat, c.location.lng, c.id];
   });
 }
 async loadList() {
@@ -131,13 +130,11 @@ const comp = det ? det.complaint : null; const loc = comp ? comp.location : null
 const nameOf = (o) => (o ? (o[l] || o.en || '') : '');
 const timeline = det ? det.timeline.filter((e) => e.fromState !== e.toState || e.type === 'REPORT_CREATED' || e.type === 'CLOSE_REQUESTED_BY_GOV').map((e) => ({ when: fmtT(e.at), text: e.type === 'CLOSE_REQUESTED_BY_GOV' ? t.close_title : (e.type === 'REPORT_CREATED' ? st.SUBMITTED : (st[e.toState] || e.type)), who: e.official || (e.actor === 'CITIZEN' ? 'Citizen' : e.actor === 'SYSTEM' ? 'System' : r[8]) })) : [];
 const reporters = det && comp ? comp.reporters.map((q, i) => { const k = r[0] + ':' + q.index; const shown = s.shown[k]; return { label: (L ? 'शिकायतकर्ता ' : 'Reporter ') + (i + 1), shown: shown ? shown : String(q.phoneMasked || '').replace(/X/g, '•'), masked: !shown, revealed: !!shown, ask: () => this.setState({ modal: 'phone', rrow: r[0], ridx: q.index, reason: '', revealErr: '' }), hide: () => { const sh = Object.assign({}, this.state.shown); delete sh[k]; this.setState({ shown: sh }); } }; }) : [];
-const pr = det && det.proof ? det.proof : null; const vd = pr && pr.verdict ? this.VERD[this.VCODE[pr.verdict]] : null; const warn = !!pr && pr.verdict !== 'EVIDENCE_PASSED';
 const canAsk = !!(cr && cr.canRequest); const blockedReason = cr && cr.reason === 'TOO_SOON' ? (L ? 'अनुरोध पहले भेजा जा चुका है। 24 घंटे बाद दोबारा भेज सकते हैं।' : 'A request was already sent. You can send another after 24 hours.') : (L ? 'केवल तब उपलब्ध जब काम पूर्ण दिखे।' : 'Available only when the work is marked done.');
 d = { code: r[0], statusText: st[status], statusStyle: this.statusStyle(status), priText: pr_(r[2]), priStyle: this.priStyle(r[2]), over: r[3] && !closed, esc: comp ? comp.escalationLevel > 0 : false, escText: (L ? 'एस्केलेशन स्तर ' : 'Escalation level ') + (comp ? comp.escalationLevel : 0), merged: r[13] > 1, mergedText: r[13] + (L ? ' शिकायतें जुड़ी हैं' : ' reports merged'),
 summary: comp ? comp.summary : '…', cat: r[4], l1: r[5], dept: r[8], where: loc ? [nameOf(loc.state && loc.state.name), nameOf(loc.district && loc.district.name), nameOf(loc.city && loc.city.name), nameOf(loc.area && loc.area.name)].filter(Boolean).join(' › ') : '', coords: Number(r[19]).toFixed(5) + ' N, ' + Number(r[20]).toFixed(5) + ' E', sla: comp ? fmtT(comp.slaDueAt) + (comp.slaBreached && !closed ? (L ? ' (समय-सीमा पार)' : ' (overdue)') : '') : '', received: comp ? fmtT(comp.createdAt) : '', age: r[9],
 langText: comp ? (comp.originalLang === 'hi' ? 'हिन्दी' : comp.originalLang === 'en' ? 'English' : String(comp.originalLang || '').toUpperCase()) : '', langCode: comp ? comp.originalLang : 'en', original: comp ? (comp.originalText || '') : '', timeline, reporters, verifyText: vf[vkey] || vf.none,
-hasProof: !!pr, noProof: !pr, claim: pr && pr.claim ? pr.claim : '', cText: pr ? (pr.contractSource === 'gemini' ? 'Gemini' : (L ? 'टेम्पलेट (AI अनुपलब्ध)' : 'Template (AI unavailable)')) : '', cStyle: pr && pr.contractSource === 'gemini' ? 'background:#DBEAFE;color:#1E3A8A;' : 'background:#FEF3C7;color:#78350F;', hash: pr && pr.sha256 ? pr.sha256.slice(0, 6) + '…' + pr.sha256.slice(-6) : '',
-vSym: vd ? vd[0] : '', vText: vd ? vd[1 + L] : '', vStyle: vd ? vd[3] : '', proofs: pr ? pr.submissions : 0, warn, blocked: !canAsk, blockedText: blockedReason,
+blocked: !canAsk, blockedText: blockedReason,
 history: cr && cr.history && cr.history.length ? cr.history.map((h) => fmtT(h.at) + ' · ' + h.official).join('; ') : (L ? 'अभी तक कोई नहीं' : 'None yet') };
 }
 const noteCount = s.note.length; const mapBoxW = s.view === 'map' ? 'flex: 1 1 0;' : 'flex: 0 0 560px;';
@@ -155,9 +152,9 @@ doExport: async () => { try { await download('/api/export.csv' + qs({ q: s.q || 
 vSplit: s.view === 'split', vTable: s.view === 'table', vMap: s.view === 'map', setSplit: () => this.setState({ view: 'split' }), setTable: () => this.setState({ view: 'table' }), setMap: () => this.setState({ view: 'map' }),
 showTable: s.view !== 'map', showMap: s.view !== 'table', mapBox: 'background:#fff;border:1px solid #D1D5DB;border-radius:8px;overflow:hidden;' + mapBoxW,
 zoomLevelText: s.zoomTxt === 'city' ? (L ? 'स्तर: शहर' : 'Level: cities') : s.zoomTxt === 'points' ? (L ? 'स्तर: हर शिकायत' : 'Level: each complaint') : (L ? 'स्तर: हीट और क्षेत्र' : 'Level: heat and areas'),
-drawer: !!r, d, closeDrawer: () => this.setState({ sel: '' }), tabDetails: s.tab === 'details', tabProof: s.tab === 'proof', showDetails: () => this.setState({ tab: 'details' }), showProof: () => this.setState({ tab: 'proof' }),
+drawer: !!r, d, closeDrawer: () => this.setState({ sel: '' }), tabDetails: true,
 copyLabel: s.copied ? (L ? 'कॉपी हुआ' : 'Copied') : (L ? 'ID कॉपी करें' : 'Copy ID'), copy: () => { try { navigator.clipboard.writeText(s.sel); } catch (e) {} this.setState({ copied: true }); setTimeout(() => this.setState({ copied: false }), 1500); },
-verifyHash: () => this.setState({ hashOk: true }), hashOk: s.hashOk, revealCount: s.revealN, openCourt: () => { try { const row = this.D.find((x) => x[0] === s.sel); sessionStorage.setItem('gov.court', JSON.stringify({ code: s.sel, id: row ? row[21] : '' })); } catch (e) {} },
+revealCount: s.revealN,
 revealErr: s.revealErr, bad: s.bad, ms: s.ms, modalPhone: s.modal === 'phone', modalAsk: s.modal === 'ask', closeModal: () => this.setState({ modal: '' }), reason: s.reason, onReason: (e) => this.setState({ reason: e.target.value }), reasonBad: s.reason.trim().length < 3,
 confirmReveal: async () => { const st0 = this.state; if (st0.reason.trim().length < 3) return; const row = this.D.find((x) => x[0] === st0.rrow); if (!row) return; try { const r1 = await api('/api/complaints/' + row[21] + '/reveal-phone', { method: 'POST', body: { reporterIndex: st0.ridx, reason: st0.reason.trim() } }); const k = st0.rrow + ':' + st0.ridx; const sh = Object.assign({}, this.state.shown); sh[k] = r1.phone; this.setState({ shown: sh, modal: '', reason: '', revealN: this.state.revealN + 1, revealErr: '' }); setTimeout(() => { const s2 = Object.assign({}, this.state.shown); delete s2[k]; this.setState({ shown: s2 }); }, 30000); } catch (e) { this.setState({ revealErr: e.code === 'REVEAL_LIMIT' ? (l === 'hi' ? 'इस घंटे की सीमा (30) पूरी हो गई।' : 'You have reached the limit of 30 numbers this hour.') : e.code === 'PHONE_ERASED' ? (l === 'hi' ? 'यह नंबर अवधारण अवधि के बाद हटा दिया गया।' : 'This number was deleted after the retention period.') : (l === 'hi' ? 'नंबर नहीं दिखाया जा सका।' : 'The number could not be shown.') }); } },
 openAsk: () => this.setState({ modal: 'ask', note: '' }), note: s.note, noteCount, onNote: (e) => this.setState({ note: e.target.value.slice(0, 300) }),
@@ -722,14 +719,6 @@ ComplaintsLogic.prototype.view = function view(__v) {
                 </>
               )}
             </div>
-            <span className="seg" role="group" aria-label={t.d_tabs} style={{ alignSelf: "flex-start" }}>
-              <button type="button" aria-pressed={tabDetails} onClick={showDetails}>
-                {t.d_details}
-              </button>
-              <button type="button" aria-pressed={tabProof} onClick={showProof}>
-                {t.d_proof}
-              </button>
-            </span>
           </div>
           <div style={{ flex: "1", minHeight: "0", overflow: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: "10px" }}>
             {!!(tabDetails) && (
@@ -851,74 +840,6 @@ ComplaintsLogic.prototype.view = function view(__v) {
               </div>
               </>
             )}
-            {!!(tabProof) && (
-              <>
-              {!!(d.hasProof) && (
-                <>
-                <div className="sec">
-                  <h3>
-                    {t.d_contract}
-                  </h3>
-                  <div style={{ fontWeight: "700" }}>
-                    {d.claim}
-                  </div>
-                  <dl className="kv">
-                    <dt>
-                      {t.source}
-                    </dt>
-                    <dd>
-                      <span className="chip" style={css(d.cStyle)}>
-                        {d.cText}
-                      </span>
-                    </dd>
-                    <dt>
-                      {t.hash}
-                    </dt>
-                    <dd style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "12px" }}>
-                      {d.hash}{' '}
-                      <button type="button" className="btn sm" onClick={verifyHash}>
-                        {t.verify_hash}
-                      </button>
-                      {!!(hashOk) && (
-                        <>
-                        <span className="chip" style={{ background: "#DCFCE7", color: "#14532D" }}>
-                          ✓ {t.hash_ok}
-                        </span>
-                        </>
-                      )}
-                    </dd>
-                  </dl>
-                </div>
-                <div className="sec">
-                  <h3>
-                    {t.d_latest}
-                  </h3>
-                  <span className="chip" style={css(`${d.vStyle};font-size:14px;padding:3px 12px;`)}>
-                    {d.vSym} {d.vText}
-                  </span>
-                  <div>
-                    {d.proofs} {t.d_proofs}. {t.not_close}
-                  </div>
-                  <TLink to="/court" className="btn pri" onClick={openCourt} style={{ alignSelf: "flex-start" }}>
-                    {t.open_court} →
-                  </TLink>
-                </div>
-                </>
-              )}
-              {!!(d.noProof) && (
-                <>
-                <div className="sec">
-                  <h3>
-                    {t.d_contract}
-                  </h3>
-                  <div>
-                    {t.no_proof}
-                  </div>
-                </div>
-                </>
-              )}
-              </>
-            )}
             <div className="sec" style={{ border: "2px solid #1D4ED8" }}>
               <h3 style={{ color: "#1E3A8A" }}>
                 {t.close_title}
@@ -929,23 +850,6 @@ ComplaintsLogic.prototype.view = function view(__v) {
                   {d.verifyText}
                 </b>
               </div>
-              {!!(d.hasProof) && (
-                <>
-                <div>
-                  {t.latest_verdict}:{' '}
-                  <span className="chip" style={css(d.vStyle)}>
-                    {d.vSym} {d.vText}
-                  </span>
-                </div>
-                </>
-              )}
-              {!!(d.warn) && (
-                <>
-                <div role="alert" style={{ padding: "7px 10px", background: "#FFFBEB", border: "1px solid #F59E0B", borderRadius: "6px", fontWeight: "600", color: "#78350F" }}>
-                  {t.warn}
-                </div>
-                </>
-              )}
               <div style={{ fontSize: "12.5px", color: "#374151" }}>
                 {t.close_help}
               </div>
@@ -1007,23 +911,6 @@ ComplaintsLogic.prototype.view = function view(__v) {
           <h2 style={{ margin: "0", fontSize: "19px" }}>
             {t.close_title}
           </h2>
-          {!!(d.hasProof) && (
-            <>
-            <div style={{ padding: "8px 10px", border: "1px solid #D1D5DB", borderRadius: "6px" }}>
-              {t.latest_verdict}:{' '}
-              <span className="chip" style={css(d.vStyle)}>
-                {d.vSym} {d.vText}
-              </span>
-            </div>
-            </>
-          )}
-          {!!(d.warn) && (
-            <>
-            <div role="alert" style={{ padding: "7px 10px", background: "#FFFBEB", border: "1px solid #F59E0B", borderRadius: "6px", fontWeight: "600", color: "#78350F" }}>
-              {t.warn} {t.can_proceed}
-            </div>
-            </>
-          )}
           <p style={{ margin: "0" }}>
             {t.close_help}
           </p>
@@ -1046,8 +933,6 @@ ComplaintsLogic.prototype.view = function view(__v) {
         </div>
         </>
       )}
-      <TLink id="goCourt" to="/court" tabIndex="-1" aria-hidden="true" style={{ display: "none" }}>
-      </TLink>
     </div>
   );
 };

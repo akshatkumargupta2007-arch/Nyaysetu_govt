@@ -9,14 +9,14 @@ import './AuditLog.css';
 class AuditLogLogic extends DCLogic {
 state = { lang: 'en', role: currentRoleKey(), tab: 'reveals', intact: false, broken: false, brokenAt: null, rv: [], rvNext: null, ac: [], acNext: null, bad: false, ms: null, checking: false };
 ROLES = govRoles();
-NAVD = [['/', 'Civic Pulse', 'सिविक पल्स', 'nstcd'], ['/complaints', 'Complaints', 'शिकायतें', 'nstcd'], ['/queue', 'Closure Court', 'क्लोज़र कोर्ट', 'nstcd'], ['/ask', 'Ask the City', 'शहर से पूछें', 'nstcd'], ['/scorecard', 'Scorecard', 'स्कोरकार्ड', 'nstc'], ['/benchmark', 'Benchmark', 'बेंचमार्क', 'n'], ['/health', 'System health', 'सिस्टम स्वास्थ्य', 'n'], ['/audit', 'Audit log', 'ऑडिट लॉग', 'n']];
+NAVD = [['/complaints', 'Complaints', 'शिकायतें', 'nstcd'], ['/audit', 'Audit log', 'ऑडिट लॉग', 'n']];
 T = {
 en: { brand: 'NyaySetu Gov', generated: 'Generated data', legend: 'Legend', view_as: 'View as', signout: 'Sign out', proto: 'Prototype. Not an official government website.',
-denied_title: 'This page is not available for your role', denied_body: 'The audit log is for the national administrator only.', back_pulse: 'Back to Civic Pulse',
+denied_title: 'This page is not available for your role', denied_body: 'The audit log is for the national administrator only.', back_pulse: 'Back to Complaints',
 nav_audit: 'Audit log', sub: 'Who looked at which mobile number, and every sensitive action. Nobody can edit or delete these entries.', check: 'Check that nothing was changed', intact: 'The audit log is intact: no entry was changed or removed.', broken: 'WARNING: the audit log was altered at entry 4,812.', preview_state: 'Preview a state',
 reveals: 'Mobile number views', actions: 'Other actions', when: 'When', who: 'Official', c_id: 'Complaint ID', reason: 'Reason given', what: 'Action', target: 'Item', more: 'Load more', keep: 'Entries are kept for the legal period and cannot be edited. Every entry is linked to the one before it.', src: 'Source' },
 hi: { brand: 'न्यायसेतु शासन', generated: 'जनित डेटा', legend: 'संकेत-सूची', view_as: 'इस रूप में देखें', signout: 'लॉग आउट', proto: 'प्रोटोटाइप। आधिकारिक सरकारी वेबसाइट नहीं।',
-denied_title: 'आपकी भूमिका के लिए यह पृष्ठ उपलब्ध नहीं', denied_body: 'ऑडिट लॉग केवल राष्ट्रीय प्रशासक के लिए है।', back_pulse: 'सिविक पल्स पर वापस',
+denied_title: 'आपकी भूमिका के लिए यह पृष्ठ उपलब्ध नहीं', denied_body: 'ऑडिट लॉग केवल राष्ट्रीय प्रशासक के लिए है।', back_pulse: 'शिकायतों पर वापस',
 nav_audit: 'ऑडिट लॉग', sub: 'किसने कौन सा मोबाइल नंबर देखा, और हर संवेदनशील कार्रवाई। इन प्रविष्टियों को कोई बदल या मिटा नहीं सकता।', check: 'जाँचें कि कुछ बदला नहीं गया', intact: 'ऑडिट लॉग सुरक्षित है: कोई प्रविष्टि बदली या हटाई नहीं गई।', broken: 'चेतावनी: ऑडिट लॉग में प्रविष्टि 4,812 पर बदलाव हुआ।', preview_state: 'कोई स्थिति देखें',
 reveals: 'मोबाइल नंबर देखे गए', actions: 'अन्य कार्रवाइयाँ', when: 'कब', who: 'अधिकारी', c_id: 'शिकायत संख्या', reason: 'दिया गया कारण', what: 'कार्रवाई', target: 'विषय', more: 'और लोड करें', keep: 'प्रविष्टियाँ कानूनी अवधि तक रखी जाती हैं और बदली नहीं जा सकतीं। हर प्रविष्टि पिछली से जुड़ी है।', src: 'स्रोत' }
 };
